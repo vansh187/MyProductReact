@@ -1,0 +1,470 @@
+/* --- Global Resets & Layout Locks --- */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden; /* Stops any unwanted page bouncing or dragging */
+}
+
+@keyframes scrollTicker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* --- Full Screen Root Page Wrapper --- */
+.landing-page-root {
+  width: 100vw;
+  height: 100vh;
+  background-color: #020613;
+  color: #ffffff;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Guarantees no scrollbars on the main window */
+}
+
+/* --- Fixed Top Horizontal Live Price Marquee --- */
+.ticker-wrap {
+  overflow: hidden;
+  width: 100%;
+  height: 44px; /* Fixed height tracking */
+  background-color: #070e1e;
+  border-bottom: 1px solid #111c35;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  flex-shrink: 0; /* Prevents layout compression */
+}
+
+.ticker-move {
+  display: inline-block;
+  white-space: nowrap;
+  animation: scrollTicker 35s linear infinite;
+}
+
+.ticker-item {
+  display: inline-block;
+  padding-right: 48px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.ticker-up {
+  color: #10b981;
+  margin-left: 6px;
+}
+
+.ticker-down {
+  color: #ef4444;
+  margin-left: 6px;
+}
+
+/* --- Centered Layout Container (No-Scroll Lock) --- */
+.main-layout-container {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  gap: 40px;
+  overflow: hidden; /* Protects the dashboard grid layout */
+}
+
+/* --- Left Column: Branding Section --- */
+.brand-column {
+  flex: 1.1;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  z-index: 2;
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 26px;
+  font-weight: 800;
+  margin-bottom: 32px;
+  letter-spacing: -0.5px;
+  color: #ffffff;
+}
+
+.logo-graphic {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 24px;
+}
+
+.logo-bar-left {
+  width: 4px;
+  height: 16px;
+  background-color: #3b82f6;
+  border-radius: 2px;
+}
+
+.logo-bar-center {
+  width: 4px;
+  height: 24px;
+  background-color: #3b82f6;
+  border-radius: 2px;
+}
+
+.logo-bar-right {
+  width: 4px;
+  height: 12px;
+  background-color: #8b5cf6;
+  border-radius: 2px;
+}
+
+.hero-title {
+  font-size: 46px;
+  font-weight: 800;
+  line-height: 1.15;
+  margin: 0 0 16px 0;
+  letter-spacing: -1px;
+  text-align: center;
+  padding-left: 160px;  /* Indents and pushes the text rightward safely */
+  text-align: center;
+}
+
+.gradient-text {
+  background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-align: right;
+}
+.logo-header { 
+  padding: 20px 0 0 40px; 
+}
+.hero-subtitle {
+  font-size: 15px;
+  color: #94a3b8;
+  max-width: 700px;
+  line-height: 1.5;
+  margin: 0 0 40px 0;
+  text-align: right;
+  margin-left: 100px;
+}
+
+/* --- Left Column: Feature Blocks --- */
+.feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-left: 100px;
+  
+}
+
+.feature-item {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-left: 100px;
+  max-width: 550px;
+  white-space: nowrap;
+}
+
+.feature-icon-box {
+  background-color: #0b1324;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #14223f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.feature-icon-box.blue { color: #3b82f6; }
+
+.feature-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-left: 5%;
+  max-width: 450px;
+}
+
+.feature-desc {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+/* --- Right Column: Auth Card Window --- */
+.auth-column {
+  flex: 0.9;
+  max-width: 440px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2;
+}
+
+.auth-card {
+  background-color: #ffffff;
+  color: #0f172a;
+  width: 100%;
+  padding: 36px 32px;
+  border-radius: 24px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.auth-title {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 4px 0;
+  letter-spacing: -0.5px;
+}
+
+.auth-subtitle {
+  color: #64748b;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* --- Form Interface Styling --- */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.input-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  transition: all 0.2s ease-in-out;
+}
+
+.input-wrapper:focus-within {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+.input-icon-left {
+  position: absolute;
+  left: 14px;
+  pointer-events: none;
+}
+
+.form-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 11px 12px 11px 40px;
+  font-size: 14px;
+  outline: none;
+  color: #0f172a;
+}
+
+.form-input.password-pad {
+  padding-right: 40px;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 14px;
+  cursor: pointer;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+}
+
+.form-extras-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.remember-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #475569;
+}
+
+.remember-checkbox {
+  cursor: pointer;
+  accent-color: #3b82f6;
+}
+
+.forgot-link {
+  color: #2563eb;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* --- Form Submission Actions --- */
+.submit-action-btn {
+  width: 100%;
+  background: linear-gradient(90deg, #2563eb 0%, #7c3aed 100%);
+  color: #ffffff;
+  border: none;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 4px;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+}
+
+/* --- OAuth Separation Interceptors --- */
+.oauth-divider {
+  text-align: center;
+  margin: 18px 0 14px 0;
+  position: relative;
+}
+
+.divider-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background-color: #e2e8f0;
+  z-index: 1;
+}
+
+.divider-text {
+  background-color: #ffffff;
+  padding: 0 12px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 500;
+  position: relative;
+  z-index: 2;
+}
+
+.oauth-button-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.oauth-btn {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.view-toggle-footer {
+  text-align: center;
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 18px;
+}
+
+.view-toggle-link {
+  color: #2563eb;
+  font-weight: 700;
+  cursor: pointer;
+}
+.hero-title { 
+  font-size: 52px; 
+  font-weight: 800; 
+  line-height: 1; 
+  margin: 0 0 16px 0; 
+  letter-spacing: -1px; 
+}
+
+.hero-subtitle-single { 
+  font-size: 15px; 
+  color: #94a3b8; 
+  white-space: nowrap; 
+  margin-bottom: 32px; 
+}
+
+/* --- Dynamic Media Scaling Queries for Laptops & Mobile Displays --- */
+@media (max-width: 920px) {
+  .main-layout-container {
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 20px;
+    gap: 24px;
+    overflow-y: auto; /* Adds clean scroll space for mobile users only */
+  }
+  html, body, .landing-page-root {
+    overflow: auto; 
+  }
+  .brand-column, .auth-column {
+    max-width: 100%;
+    width: 100%;
+     
+  }
+  .brand-column {
+    align-items: center;
+    text-align: right;
+    margin-left: auto;
+  }
+  .hero-title {
+    font-size: 36px;
+  }
+  .feature-list {
+    display: none; /* Auto-hides standard features list on small views for perfect spacing */
+  }
+}
+
+@media (max-height: 720px) {
+  .main-layout-container {
+    padding: 10px 24px;
+    gap: 20px;
+  }
+  .logo-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 26px;
+  font-weight: 800;
+  margin-top: -100px; 
+  margin-left: -25px;   /* Refactored: Moves the logo slightly up */
+  margin-bottom: 16px;  /* Maintains your requested spacing */
+  letter-spacing: -0.5px;
+  color: #ffffff;
+}
+  .hero-title { font-size: 38px; }
+  .auth-card { padding: 24px 28px; }
+}
