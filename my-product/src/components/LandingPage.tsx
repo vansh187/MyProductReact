@@ -24,7 +24,7 @@ export default function LandingPage() {
   try {
               
             if(isLogin){
-                const response = await fetch('https://my-product-backend-j1hu.onrender.com/login', {
+                const response = await fetch('http://localhost:8000/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password }),
@@ -41,7 +41,7 @@ export default function LandingPage() {
                 alert('Login failed. Please check your credentials.');
                 }
               }else{
-                const response = await fetch('https://my-product-backend-j1hu.onrender.com/signup', {
+                const response = await fetch('http://localhost:8000/signup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ first_name: firstName, 
@@ -170,7 +170,7 @@ export default function LandingPage() {
             <form onSubmit={handleMockSubmit} className="auth-form">
              {/* --- EMAIL --- */}
 <div className="input-group">
-  <label className="input-label">Email / User ID</label>
+  <label className="input-label">Email</label>
   <div className="input-wrapper">
     <User size={16} color="#94a3b8" className="input-icon-left" />
     <input 
