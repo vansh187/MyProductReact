@@ -29,7 +29,7 @@ const Home = () => {
       return;
     }
     
-  const response = await fetch('http://localhost:8000/v1/addFundsToWallet', {
+  const response = await fetch('https://primepiptrade.com/v1/addFundsToWallet', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' 
         ,'Authorization': `Bearer ${localStorage.getItem('authToken')}`
@@ -48,7 +48,7 @@ const Home = () => {
     handler: async function (response:any) {
       // Handle success
       console.log(response);
-      const verifyResponse = await fetch('http://localhost:8000/v1/VerifyFundPayements', {
+      const verifyResponse = await fetch('https://primepiptrade.com/v1/VerifyFundPayements', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
