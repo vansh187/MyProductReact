@@ -65,7 +65,10 @@ const Home = () => {
 
   
   );
-    
+    const vResponse=await verifyResponse.json()
+    if(vResponse.status == '200'){
+
+    }
     alert("Payment Successful!");
     },
     prefill: { currency: currency },
