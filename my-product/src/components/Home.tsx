@@ -67,9 +67,11 @@ const Home = () => {
   );
     const vResponse=await verifyResponse.json()
     if(vResponse.status == '200'){
-
+       alert("Payment Successful!");
+        console.log("Payment status success")
+    }else{
+      console.log("Pament Failed")
     }
-    alert("Payment Successful!");
     },
     prefill: { currency: currency },
     theme: { color: "#3399cc" },
