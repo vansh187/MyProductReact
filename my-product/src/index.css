@@ -66,3 +66,12 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+#root {
+  max-width: 100% !important; /* Kills the default 1280px limit */
+  width: 100%;
+  margin: 0;
+  padding: 0 !important;      /* Kills the default 2rem side padding */
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
