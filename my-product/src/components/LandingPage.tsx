@@ -24,7 +24,7 @@ export default function LandingPage() {
   try {
               
             if(isLogin){
-                const response = await fetch('https://my-product-backend-j1hu.onrender.com//login', {
+                const response = await fetch('https://my-product-backend-j1hu.onrender.com/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password }),
