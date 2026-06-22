@@ -40,7 +40,7 @@ const Home = () => {
     const orderData = await response.json();
     console.log("Data from backend:", orderData);
     const options = {
-    key: orderData.key, // Use the key provided by your backend
+    key: import.meta.env.RAZORPAY_API_KEY, // Use the key provided by your backend
     amount: orderData.amount,
     currency: "INR",
     name: "Your Business Name",
