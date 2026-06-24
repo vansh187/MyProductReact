@@ -161,11 +161,13 @@ function NavDropdown({ label, accent, sections }: typeof NAV_ITEMS[0]) {
 /* ── Header ───────────────────────────────────────────── */
 export function Header({ isDark, onToggleTheme }: HeaderProps) {
   const navigate = useNavigate();
-  const [walletOpen, setWalletOpen]   = useState(false);
-  const [amount, setAmount]           = useState("");
-  const [success, setSuccess]         = useState(false);
-  const [loading, setLoading]         = useState(false);
-  const [searchFocus, setSearchFocus] = useState(false);
+  const [walletOpen, setWalletOpen]     = useState(false);
+  const [amount, setAmount]             = useState("");
+  const [success, setSuccess]           = useState(false);
+  const [loading, setLoading]           = useState(false);
+  const [searchFocus, setSearchFocus]   = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
 
   async function handleLogout() {
     try {
@@ -190,6 +192,26 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
   }
 
   const BASE_URL = "https://my-product-backend-j1hu.onrender.com";
+
+  async function fetchWalletBalance() {
+    setBalanceLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/v1/getWalletBalance`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
+      });
+      if (!res.ok) throw new Error(`Failed to fetch balance (${res.status})`);
+      const data = await res.json();
+      // Accept balance from common response shapes
+      const raw = data?.balance ?? data?.walletBalance ?? data?.wallet_balance ?? 0;
+      setWalletBalance(Number(raw));
+    } catch (err) {
+      console.error("Wallet balance fetch error:", err);
+      setWalletBalance(null);
+    } finally {
+      setBalanceLoading(false);
+    }
+  }
 
   const loadRazorpay = () =>
     new Promise((resolve) => {
@@ -266,6 +288,7 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
             // Backend returns status as a string "200"
             if (String(vResponse.status) === "200") {
               setSuccess(true);
+              fetchWalletBalance();
               setTimeout(() => { setSuccess(false); setAmount(""); setWalletOpen(false); }, 2500);
             } else {
               alert("Payment verification failed. Please contact support.");
@@ -370,7 +393,13 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
           {/* ── Add Funds (Wallet) ── */}
           <div style={{ position: "relative" }}>
             <button
-              onClick={() => { setWalletOpen(o => !o); setSuccess(false); setAmount(""); }}
+              onClick={() => {
+                const opening = !walletOpen;
+                setWalletOpen(opening);
+                setSuccess(false);
+                setAmount("");
+                if (opening) fetchWalletBalance();
+              }}
               style={{
                 display: "flex", alignItems: "center", gap: "6px",
                 height: "36px", padding: "0 14px",
@@ -440,8 +469,16 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
                       borderRadius: "10px", padding: "10px 14px",
                     }}>
                       <div>
-                        <div style={{ fontSize: "10px", color: "#8b949e", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>Available Balance</div>
-                        <div style={{ fontSize: "20px", fontWeight: 800, color: "#4ade80", letterSpacing: "-0.5px" }}>₹0.00</div>
+                        <div style={{ fontSize: "10px", color: "#8b949e", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Available Balance</div>
+                        {balanceLoading ? (
+                          <div style={{ height: "24px", width: "90px", borderRadius: "6px", background: "rgba(255,255,255,0.08)", animation: "pulse 1.5s ease-in-out infinite" }} />
+                        ) : (
+                          <div style={{ fontSize: "20px", fontWeight: 800, color: "#4ade80", letterSpacing: "-0.5px" }}>
+                            {walletBalance !== null
+                              ? `₹${walletBalance.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : "—"}
+                          </div>
+                        )}
                       </div>
                       <div style={{
                         width: "34px", height: "34px", borderRadius: "8px",

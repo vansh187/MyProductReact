@@ -139,6 +139,11 @@
   100% { transform: translateY(-50%); }
 }
 
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .animate-ticker-up {
   animation: tickerUp 28s linear infinite;
   display: flex;
