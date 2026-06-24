@@ -392,11 +392,6 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
                 "::placeholder": { color: "#6e7681" },
               } as React.CSSProperties}
             />
-            <kbd style={{
-              fontSize: "10px", color: "#6e7681",
-              background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
-              borderRadius: "4px", padding: "1px 5px", flexShrink: 0, fontFamily: "inherit",
-            }}>⌘K</kbd>
           </div>
 
           {/* ── Add Funds (Wallet) ── */}
