@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BarChart2, Shield, Zap, User, Lock, Eye, EyeOff, Sun, Moon } from 'lucide-react';
 import './LandingPage.css';
 import { useNavigate } from 'react-router-dom';
+import { Footer } from './footer';
 
 export default function LandingPage() {
   const BASE_URL = "https://my-product-backend-j1hu.onrender.com";
@@ -22,10 +23,6 @@ export default function LandingPage() {
     document.body.style.backgroundColor = isDark ? "#020613" : "#f0f4f8";
     return () => { document.body.style.backgroundColor = ""; };
   }, [isDark]);
-  const handleMockSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    alert(`Mock login executed for username: ${email}`);
-  };
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -41,8 +38,14 @@ export default function LandingPage() {
 
         if (response.ok) {
           const data = await response.json();
-          localStorage.setItem('authToken', data.Token);
-          navigate('/home');
+          console.log('[login response]', data);
+          const token = data?.Token ?? data?.token ?? data?.access_token ?? data?.auth_token ?? data?.jwt;
+          if (token) {
+            localStorage.setItem('authToken', token);
+            navigate('/home');
+          } else {
+            setErrorMsg('Invalid credentials. Please check your email and password.');
+          }
         } else if (response.status === 401 || response.status === 400) {
           setErrorMsg('Invalid credentials. Please check your email and password.');
         } else {
@@ -173,7 +176,7 @@ export default function LandingPage() {
               </p>
             </div>
 
-            <form onSubmit={handleMockSubmit} className="auth-form">
+            <form onSubmit={handleLogin} className="auth-form">
              {/* --- EMAIL --- */}
 <div className="input-group">
   <label className="input-label">Email</label>
@@ -270,7 +273,6 @@ export default function LandingPage() {
 
               <button
                 type="submit"
-                onClick={handleLogin}
                 className="submit-action-btn"
                 disabled={isLoading}
               >
@@ -320,6 +322,8 @@ export default function LandingPage() {
         </div>
 
       </div>
+
+      <Footer isDark={isDark} />
 
       {/* Theme toggle — fixed top-right */}
       <button
