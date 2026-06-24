@@ -491,3 +491,52 @@ html, body {
   .hero-subtitle { margin-bottom: 28px; }
   .auth-card { padding: 24px 28px; }
 }
+
+/* ── Light Mode Overrides ─────────────────────────────── */
+.landing-page-root.light-mode {
+  background-color: #f0f4f8;
+  color: #0f172a;
+}
+
+.light-mode .ticker-wrap {
+  background-color: #e2e8f0;
+  border-bottom-color: #cbd5e1;
+}
+
+.light-mode .ticker-item {
+  color: #1e293b;
+}
+
+.light-mode .logo-container {
+  color: #0f172a;
+}
+
+.light-mode .hero-title {
+  color: #0f172a;
+}
+
+.light-mode .hero-subtitle {
+  color: #475569;
+}
+
+.light-mode .feature-icon-box {
+  background-color: #dde3ec;
+  border-color: #c8d2e0;
+}
+
+.light-mode .feature-icon-box.blue {
+  color: #2563eb;
+}
+
+.light-mode .feature-title {
+  color: #0f172a;
+}
+
+.light-mode .feature-desc {
+  color: #475569;
+}
+
+.light-mode .auth-card {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  border: 1px solid #e2e8f0;
+}

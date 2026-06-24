@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { BarChart2, Shield, Zap, User, Lock, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { BarChart2, Shield, Zap, User, Lock, Eye, EyeOff, Sun, Moon } from 'lucide-react';
 import './LandingPage.css';
 import { useNavigate } from 'react-router-dom';
 
@@ -14,7 +14,14 @@ export default function LandingPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isDark, setIsDark] = useState(() => localStorage.getItem("theme") !== "light");
   const navigate=useNavigate();
+
+  useEffect(() => {
+    localStorage.setItem("theme", isDark ? "dark" : "light");
+    document.body.style.backgroundColor = isDark ? "#020613" : "#f0f4f8";
+    return () => { document.body.style.backgroundColor = ""; };
+  }, [isDark]);
   const handleMockSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     alert(`Mock login executed for username: ${email}`);
@@ -70,9 +77,9 @@ export default function LandingPage() {
   };
 
   return (
-    
-    <div className="landing-page-root">
-      
+
+    <div className={`landing-page-root${isDark ? "" : " light-mode"}`}>
+
       {/* 1. HORIZONTAL LIVE PRICE MARQUEE */}
       <div className="ticker-wrap">
         <div className="ticker-move">
@@ -313,6 +320,26 @@ export default function LandingPage() {
         </div>
 
       </div>
+
+      {/* Theme toggle — fixed top-right */}
+      <button
+        onClick={() => setIsDark(d => !d)}
+        title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+        style={{
+          position: 'fixed', top: '54px', right: '16px', zIndex: 200,
+          width: '40px', height: '40px', borderRadius: '50%',
+          border: `1px solid ${isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)'}`,
+          background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+          color: isDark ? '#e2e8f0' : '#334155',
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+          transition: 'background 0.2s, border 0.2s, color 0.2s',
+          boxShadow: isDark ? '0 2px 8px rgba(0,0,0,0.4)' : '0 2px 8px rgba(0,0,0,0.1)',
+        }}
+      >
+        {isDark ? <Sun size={17} /> : <Moon size={17} />}
+      </button>
+
     </div>
   );
 }

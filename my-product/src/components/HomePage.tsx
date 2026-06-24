@@ -6,7 +6,7 @@ import { Footer } from "./footer";
 
 export default function HomePage() {
   const navigate = useNavigate();
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(() => localStorage.getItem("theme") !== "light");
 
   // Redirect to landing page if no auth token (expired or never logged in)
   useEffect(() => {
@@ -43,7 +43,7 @@ export default function HomePage() {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: pageBg }}>
-      <Header isDark={isDark} onToggleTheme={() => setIsDark((d) => !d)} />
+      <Header isDark={isDark} onToggleTheme={() => setIsDark((d) => { const next = !d; localStorage.setItem("theme", next ? "dark" : "light"); return next; })} />
       <main style={{ flex: 1 }}>
         <HeroSection isDark={isDark} />
         <Footer isDark={isDark} />
