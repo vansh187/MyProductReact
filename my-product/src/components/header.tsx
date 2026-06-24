@@ -203,7 +203,7 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
     setBalanceLoading(true);
     try {
       const res = await fetch(`${BASE_URL}/v1/getWalletBalance`, {
-        method: "GET",
+        method: "POST",
         headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
       });
       if (res.status === 401) { handleSessionExpired(); return; }
