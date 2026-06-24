@@ -77,9 +77,9 @@ html, body {
   width: 100%;
   max-width: 1400px;
   margin: 0 auto;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 32px 48px;
+  padding: 72px 48px 48px;
   gap: 60px;
   min-height: calc(100vh - 44px);
 }
@@ -92,7 +92,7 @@ html, body {
   max-width: 650px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: flex-start;
   text-align: left;
   padding-left: 24px;
@@ -215,8 +215,8 @@ html, body {
   flex: 0.9;
   max-width: 440px;
   display: flex;
-  justify-content: center;
-  align-items: center;
+  justify-content: flex-start;
+  align-items: flex-start;
   z-index: 2;
 }
 

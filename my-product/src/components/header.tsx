@@ -340,8 +340,8 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
 
           {/* Logo */}
-          <a href="/home" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none", marginRight: "16px" }}>
-            <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+          <a href="/home" style={{ display: "flex", alignItems: "center", gap: "12px", textDecoration: "none", marginRight: "20px" }}>
+            <svg width="34" height="34" viewBox="0 0 32 32" fill="none">
               <defs>
                 <linearGradient id="hL1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#818cf8"/><stop offset="100%" stopColor="#6366f1"/></linearGradient>
                 <linearGradient id="hL2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#60a5fa"/><stop offset="100%" stopColor="#3b82f6"/></linearGradient>
@@ -351,9 +351,10 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
               <rect x="13" y="10" width="6" height="18" rx="1.5" fill="url(#hL2)"/>
               <rect x="22" y="4" width="6" height="24" rx="1.5" fill="url(#hL3)"/>
             </svg>
-            <span style={{ fontSize: "16px", fontWeight: 700, color: isDark ? "#e6edf3" : "#0f172a", letterSpacing: "-0.3px", whiteSpace: "nowrap" }}>
-              PrimePip<span style={{ color: "#60a5fa" }}>Trade</span>
-              <span style={{ color: isDark ? "#6e7681" : "#94a3b8", fontWeight: 400 }}>.com</span>
+            <span style={{ fontSize: "20px", fontWeight: 800, letterSpacing: "-0.5px", whiteSpace: "nowrap", lineHeight: 1 }}>
+              <span style={{ color: isDark ? "#e6edf3" : "#0f172a" }}>PrimePip</span>
+              <span style={{ background: "linear-gradient(90deg,#60a5fa,#818cf8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>Trade</span>
+              <span style={{ color: isDark ? "#6e7681" : "#94a3b8", fontWeight: 500, fontSize: "15px" }}>.com</span>
             </span>
           </a>
 
