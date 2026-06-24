@@ -45,6 +45,8 @@ const Home = () => {
     currency: "INR",
     name: "Your Business Name",
     order_id: orderData.id,
+    userId: orderData.userId,
+    notes: { user_id: orderData.userId },
     handler: async function (response:any) {
       // Handle success
       console.log(response);
