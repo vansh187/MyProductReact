@@ -44,7 +44,9 @@ const Home = () => {
     amount: orderData.amount,
     currency: "INR",
     name: "Your Business Name",
-    order_id: orderData.id,
+    order_id: orderData.razorpay_order.id,
+    userId: orderData.userId,
+    notes: { user_id: orderData.userId },
     handler: async function (response:any) {
       // Handle success
       console.log(response);

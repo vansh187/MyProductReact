@@ -8,7 +8,10 @@
 html, body {
   width: 100%;
   height: 100%;
-  overflow: hidden; /* Stops any unwanted page bouncing or dragging */
+  overflow-y: auto;
+  background-color: #020613;
+  margin: 0;
+  padding: 0;
 }
 
 @keyframes scrollTicker {
@@ -18,27 +21,29 @@ html, body {
 
 /* --- Full Screen Root Page Wrapper --- */
 .landing-page-root {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  min-height: 100vh;
   background-color: #020613;
   color: #ffffff;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* Guarantees no scrollbars on the main window */
 }
 
-/* --- Fixed Top Horizontal Live Price Marquee --- */
+/* --- Sticky Top Horizontal Live Price Marquee --- */
 .ticker-wrap {
   overflow: hidden;
   width: 100%;
-  height: 44px; /* Fixed height tracking */
+  height: 44px;
   background-color: #070e1e;
   border-bottom: 1px solid #111c35;
   display: flex;
   align-items: center;
   white-space: nowrap;
-  flex-shrink: 0; /* Prevents layout compression */
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 50;
 }
 
 .ticker-move {
@@ -65,18 +70,18 @@ html, body {
   margin-left: 6px;
 }
 
-/* --- Centered Layout Container (No-Scroll Lock) --- */
+/* --- Centered Layout Container --- */
 .main-layout-container {
   display: flex;
   flex: 1;
   width: 100%;
   max-width: 1400px;
   margin: 0 auto;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 20px 40px;
+  padding: 72px 48px 48px;
   gap: 60px;
-  overflow: hidden;
+  min-height: calc(100vh - 44px);
 }
 
 
@@ -87,13 +92,11 @@ html, body {
   max-width: 650px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: flex-start;
   text-align: left;
-  padding-left: 40px;
+  padding-left: 24px;
   z-index: 2;
-  justify-content: center;
-  padding-top: 60px;
 }
 
 .logo-container {
@@ -105,7 +108,6 @@ html, body {
   margin-bottom: 32px;
   letter-spacing: -0.5px;
   color: #ffffff;
-  margin-top: 30px;
 }
 
 .logo-graphic {
@@ -213,8 +215,8 @@ html, body {
   flex: 0.9;
   max-width: 440px;
   display: flex;
-  justify-content: center;
-  align-items: center;
+  justify-content: flex-start;
+  align-items: flex-start;
   z-index: 2;
 }
 
@@ -422,52 +424,119 @@ html, body {
 }
 
 /* --- Dynamic Media Scaling Queries for Laptops & Mobile Displays --- */
+@media (max-width: 1024px) {
+  .main-layout-container {
+    padding: 32px 32px;
+    gap: 40px;
+  }
+  .brand-column {
+    padding-left: 0;
+  }
+}
+
 @media (max-width: 920px) {
   .main-layout-container {
     flex-direction: column;
-    justify-content: flex-end;
-    padding: 20px;
-    gap: 24px;
-    overflow-y: auto; /* Adds clean scroll space for mobile users only */
-  }
-  html, body, .landing-page-root {
-    overflow: auto; 
-  }
-  .brand-column, .auth-column {
-    max-width: 100%;
-    width: 100%;
-     
+    justify-content: center;
+    align-items: center;
+    padding: 32px 24px 48px;
+    gap: 32px;
+    min-height: auto;
   }
   .brand-column {
+    max-width: 100%;
+    width: 100%;
     align-items: center;
-    text-align: right;
-    margin-left: auto;
+    text-align: center;
+    padding-left: 0;
+    padding-top: 0;
+  }
+  .auth-column {
+    max-width: 100%;
+    width: 100%;
   }
   .hero-title {
-    font-size: 36px;
+    font-size: 40px;
+    text-align: center;
+  }
+  .hero-subtitle {
+    text-align: center;
+    margin-left: auto;
+    margin-right: auto;
   }
   .feature-list {
-    display: none; /* Auto-hides standard features list on small views for perfect spacing */
+    display: none;
   }
+}
+
+@media (max-width: 480px) {
+  .main-layout-container {
+    padding: 24px 16px 40px;
+  }
+  .hero-title { font-size: 32px; }
+  .auth-card { padding: 24px 20px; }
 }
 
 @media (max-height: 720px) {
   .main-layout-container {
-    padding: 10px 24px;
-    gap: 20px;
+    padding: 24px 48px;
+    gap: 40px;
+    min-height: auto;
   }
   .logo-container {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 26px;
-  font-weight: 800;
-  margin-top: -100px; 
-  margin-left: -25px;   /* Refactored: Moves the logo slightly up */
-  margin-bottom: 16px;  /* Maintains your requested spacing */
-  letter-spacing: -0.5px;
-  color: #ffffff;
-}
+    margin-top: 0;
+    margin-bottom: 16px;
+  }
   .hero-title { font-size: 38px; }
+  .hero-subtitle { margin-bottom: 28px; }
   .auth-card { padding: 24px 28px; }
+}
+
+/* ── Light Mode Overrides ─────────────────────────────── */
+.landing-page-root.light-mode {
+  background-color: #f0f4f8;
+  color: #0f172a;
+}
+
+.light-mode .ticker-wrap {
+  background-color: #e2e8f0;
+  border-bottom-color: #cbd5e1;
+}
+
+.light-mode .ticker-item {
+  color: #1e293b;
+}
+
+.light-mode .logo-container {
+  color: #0f172a;
+}
+
+.light-mode .hero-title {
+  color: #0f172a;
+}
+
+.light-mode .hero-subtitle {
+  color: #475569;
+}
+
+.light-mode .feature-icon-box {
+  background-color: #dde3ec;
+  border-color: #c8d2e0;
+}
+
+.light-mode .feature-icon-box.blue {
+  color: #2563eb;
+}
+
+.light-mode .feature-title {
+  color: #0f172a;
+}
+
+.light-mode .feature-desc {
+  color: #475569;
+}
+
+.light-mode .auth-card {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  border: 1px solid #e2e8f0;
 }

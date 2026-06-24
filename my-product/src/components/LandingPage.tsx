@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { BarChart2, Shield, Zap, User, Lock, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { BarChart2, Shield, Zap, User, Lock, Eye, EyeOff, Sun, Moon } from 'lucide-react';
 import './LandingPage.css';
 import { useNavigate } from 'react-router-dom';
+import { Footer } from './footer';
 
 export default function LandingPage() {
+  const BASE_URL = "https://my-product-backend-j1hu.onrender.com";
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -12,68 +14,75 @@ export default function LandingPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [isDark, setIsDark] = useState(() => localStorage.getItem("theme") !== "light");
   const navigate=useNavigate();
-  const handleMockSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    alert(`Mock login executed for username: ${email}`);
-  };
+
+  useEffect(() => {
+    localStorage.setItem("theme", isDark ? "dark" : "light");
+    document.body.style.backgroundColor = isDark ? "#020613" : "#f0f4f8";
+    return () => { document.body.style.backgroundColor = ""; };
+  }, [isDark]);
   const handleLogin = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setIsLoading(true);
+    e.preventDefault();
+    setIsLoading(true);
+    setErrorMsg('');
 
-  try {
-              
-            if(isLogin){
-                const response = await fetch('https://my-product-backend-j1hu.onrender.com/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password }),
-                });
+    try {
+      if (isLogin) {
+        const response = await fetch(`${BASE_URL}/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
 
-                if (response.ok) {
-                const data = await response.json();
-                console.log('Login successful:', data);
-                localStorage.setItem('authToken', data.Token)
-                setIsLogin(true);
-                navigate('/home');
+        if (response.ok) {
+          const data = await response.json();
+          console.log('[login response]', data);
+          const token = data?.Token ?? data?.token ?? data?.access_token ?? data?.auth_token ?? data?.jwt;
+          if (token) {
+            localStorage.setItem('authToken', token);
+            navigate('/home');
+          } else {
+            setErrorMsg('Invalid credentials. Please check your email and password.');
+          }
+        } else if (response.status === 401 || response.status === 400) {
+          setErrorMsg('Invalid credentials. Please check your email and password.');
+        } else {
+          setErrorMsg('Login failed. Please try again later.');
+        }
+      } else {
+        const response = await fetch(`${BASE_URL}/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            first_name: firstName,
+            last_name: lastName,
+            email,
+            password,
+            phone_number: phoneNumber,
+          }),
+        });
 
-                } else {
-                alert('Login failed. Please check your credentials.');
-                }
-              }else{
-                const response = await fetch('https://my-product-backend-j1hu.onrender.com/signup', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ first_name: firstName, 
-                   last_name: lastName, 
-                    email: email, 
-                password: password, 
-                  phone_number: phoneNumber}),
-                });
-
-                if (response.ok) {
-                const data = await response.json();
-                console.log('signup successful:', data);
-                alert('Account created successfully! Please login.');
-                setIsLogin(true)
-                navigate('/');
-
-                } else {
-                alert('Login failed. Please check your credentials.');
-                }
-              }
-            } catch (error) {
-                console.error('API Error:', error);
-                alert('An error occurred. Please try again later.');
-            } finally {
-                setIsLoading(false);
-            }
-    } ;
+        if (response.ok) {
+          setIsLogin(true);
+          setErrorMsg('');
+          setEmail(''); setPassword(''); setFirstName(''); setLastName(''); setPhoneNumber('');
+        } else {
+          setErrorMsg('Sign up failed. Please check your details and try again.');
+        }
+      }
+    } catch {
+      setErrorMsg('Network error. Please check your connection and try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
-    
-    <div className="landing-page-root">
-      
+
+    <div className={`landing-page-root${isDark ? "" : " light-mode"}`}>
+
       {/* 1. HORIZONTAL LIVE PRICE MARQUEE */}
       <div className="ticker-wrap">
         <div className="ticker-move">
@@ -167,7 +176,7 @@ export default function LandingPage() {
               </p>
             </div>
 
-            <form onSubmit={handleMockSubmit} className="auth-form">
+            <form onSubmit={handleLogin} className="auth-form">
              {/* --- EMAIL --- */}
 <div className="input-group">
   <label className="input-label">Email</label>
@@ -262,14 +271,27 @@ export default function LandingPage() {
                 </div>
               )}
 
-             <button 
-                     type="submit" 
-                     onClick={handleLogin} 
-                    className="submit-action-btn"
-                         disabled={isLoading}
-                        >
-                    {isLoading ? 'Authenticating...' : (isLogin ? 'Login' : 'Sign Up')}
-            </button>
+              <button
+                type="submit"
+                className="submit-action-btn"
+                disabled={isLoading}
+              >
+                {isLoading ? 'Authenticating...' : (isLogin ? 'Login' : 'Sign Up')}
+              </button>
+
+              {errorMsg && (
+                <div style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '8px',
+                  background: 'rgba(239,68,68,0.08)',
+                  border: '1px solid rgba(239,68,68,0.3)',
+                  borderRadius: '8px', padding: '10px 14px',
+                }}>
+                  <span style={{ color: '#ef4444', fontSize: '18px', lineHeight: 1, flexShrink: 0 }}>⚠</span>
+                  <span style={{ color: '#ef4444', fontSize: '13px', fontWeight: 500, lineHeight: 1.4 }}>
+                    {errorMsg}
+                  </span>
+                </div>
+              )}
             </form>
 
             <div className="oauth-divider">
@@ -291,7 +313,7 @@ export default function LandingPage() {
 
             <div className="view-toggle-footer">
               {isLogin ? "Don't have an account? " : 'Already have an account? '}
-              <span onClick={() => setIsLogin(!isLogin)} className="view-toggle-link">
+              <span onClick={() => { setIsLogin(v => !v); setErrorMsg(''); }} className="view-toggle-link">
                 {isLogin ? 'Sign Up' : 'Login'}
               </span>
             </div>
@@ -300,6 +322,28 @@ export default function LandingPage() {
         </div>
 
       </div>
+
+      <Footer isDark={isDark} />
+
+      {/* Theme toggle — fixed top-right */}
+      <button
+        onClick={() => setIsDark(d => !d)}
+        title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+        style={{
+          position: 'fixed', top: '54px', right: '16px', zIndex: 200,
+          width: '40px', height: '40px', borderRadius: '50%',
+          border: `1px solid ${isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)'}`,
+          background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+          color: isDark ? '#e2e8f0' : '#334155',
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+          transition: 'background 0.2s, border 0.2s, color 0.2s',
+          boxShadow: isDark ? '0 2px 8px rgba(0,0,0,0.4)' : '0 2px 8px rgba(0,0,0,0.1)',
+        }}
+      >
+        {isDark ? <Sun size={17} /> : <Moon size={17} />}
+      </button>
+
     </div>
   );
 }
