@@ -1,10 +1,19 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Header } from "./header";
 import { HeroSection } from "./hero-section";
 import { Footer } from "./footer";
 
 export default function HomePage() {
+  const navigate = useNavigate();
   const [isDark, setIsDark] = useState(true);
+
+  // Redirect to landing page if no auth token (expired or never logged in)
+  useEffect(() => {
+    if (!localStorage.getItem("authToken")) {
+      navigate("/", { replace: true });
+    }
+  }, []);
 
   useEffect(() => {
     // LandingPage.css sets overflow:hidden on html/body globally — override it here

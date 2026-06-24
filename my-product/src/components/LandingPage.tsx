@@ -13,63 +13,61 @@ export default function LandingPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const navigate=useNavigate();
   const handleMockSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     alert(`Mock login executed for username: ${email}`);
   };
   const handleLogin = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setIsLoading(true);
+    e.preventDefault();
+    setIsLoading(true);
+    setErrorMsg('');
 
-  try {
-              
-            if(isLogin){
-                const response = await fetch(`${BASE_URL}/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password }),
-                });
+    try {
+      if (isLogin) {
+        const response = await fetch(`${BASE_URL}/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
 
-                if (response.ok) {
-                const data = await response.json();
-                console.log('Login successful:', data);
-                localStorage.setItem('authToken', data.Token)
-                setIsLogin(true);
-                navigate('/home');
+        if (response.ok) {
+          const data = await response.json();
+          localStorage.setItem('authToken', data.Token);
+          navigate('/home');
+        } else if (response.status === 401 || response.status === 400) {
+          setErrorMsg('Invalid credentials. Please check your email and password.');
+        } else {
+          setErrorMsg('Login failed. Please try again later.');
+        }
+      } else {
+        const response = await fetch(`${BASE_URL}/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            first_name: firstName,
+            last_name: lastName,
+            email,
+            password,
+            phone_number: phoneNumber,
+          }),
+        });
 
-                } else {
-                alert('Login failed. Please check your credentials.');
-                }
-              }else{
-                const response = await fetch(`${BASE_URL}/signup`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ first_name: firstName, 
-                   last_name: lastName, 
-                    email: email,
-                password: password, 
-                  phone_number: phoneNumber}),
-                });
-
-                if (response.ok) {
-                const data = await response.json();
-                console.log('signup successful:', data);
-                alert('Account created successfully! Please login.');
-                setIsLogin(true)
-                navigate('/');
-
-                } else {
-                alert('Login failed. Please check your credentials.');
-                }
-              }
-            } catch (error) {
-                console.error('API Error:', error);
-                alert('An error occurred. Please try again later.');
-            } finally {
-                setIsLoading(false);
-            }
-    } ;
+        if (response.ok) {
+          setIsLogin(true);
+          setErrorMsg('');
+          setEmail(''); setPassword(''); setFirstName(''); setLastName(''); setPhoneNumber('');
+        } else {
+          setErrorMsg('Sign up failed. Please check your details and try again.');
+        }
+      }
+    } catch {
+      setErrorMsg('Network error. Please check your connection and try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     
@@ -263,14 +261,28 @@ export default function LandingPage() {
                 </div>
               )}
 
-             <button 
-                     type="submit" 
-                     onClick={handleLogin} 
-                    className="submit-action-btn"
-                         disabled={isLoading}
-                        >
-                    {isLoading ? 'Authenticating...' : (isLogin ? 'Login' : 'Sign Up')}
-            </button>
+              <button
+                type="submit"
+                onClick={handleLogin}
+                className="submit-action-btn"
+                disabled={isLoading}
+              >
+                {isLoading ? 'Authenticating...' : (isLogin ? 'Login' : 'Sign Up')}
+              </button>
+
+              {errorMsg && (
+                <div style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '8px',
+                  background: 'rgba(239,68,68,0.08)',
+                  border: '1px solid rgba(239,68,68,0.3)',
+                  borderRadius: '8px', padding: '10px 14px',
+                }}>
+                  <span style={{ color: '#ef4444', fontSize: '18px', lineHeight: 1, flexShrink: 0 }}>⚠</span>
+                  <span style={{ color: '#ef4444', fontSize: '13px', fontWeight: 500, lineHeight: 1.4 }}>
+                    {errorMsg}
+                  </span>
+                </div>
+              )}
             </form>
 
             <div className="oauth-divider">
@@ -292,7 +304,7 @@ export default function LandingPage() {
 
             <div className="view-toggle-footer">
               {isLogin ? "Don't have an account? " : 'Already have an account? '}
-              <span onClick={() => setIsLogin(!isLogin)} className="view-toggle-link">
+              <span onClick={() => { setIsLogin(v => !v); setErrorMsg(''); }} className="view-toggle-link">
                 {isLogin ? 'Sign Up' : 'Login'}
               </span>
             </div>

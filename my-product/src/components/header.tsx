@@ -193,13 +193,20 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
 
   const BASE_URL = "https://my-product-backend-j1hu.onrender.com";
 
+  function handleSessionExpired() {
+    localStorage.clear();
+    sessionStorage.clear();
+    navigate("/");
+  }
+
   async function fetchWalletBalance() {
     setBalanceLoading(true);
     try {
       const res = await fetch(`${BASE_URL}/v1/getWalletBalance`, {
-        method: "POST",
+        method: "GET",
         headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
       });
+      if (res.status === 401) { handleSessionExpired(); return; }
       if (!res.ok) throw new Error(`Failed to fetch balance (${res.status})`);
       const data = await res.json();
       // Accept balance from common response shapes
@@ -239,6 +246,7 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
         body: JSON.stringify({ amount, currency: "INR" }),
       });
 
+      if (res.status === 401) { handleSessionExpired(); return; }
       if (!res.ok) {
         const errText = await res.text().catch(() => res.statusText);
         throw new Error(`Order creation failed (${res.status}): ${errText}`);
