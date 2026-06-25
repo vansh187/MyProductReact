@@ -127,7 +127,7 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
     const fetchData = () => {
       controller.abort();
       controller = new AbortController();
-      fetch('http://localhost:8000/api/market/indices', { signal: controller.signal })
+      fetch(`${BASE_URL}/api/market/indices`, { signal: controller.signal })
         .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
         .then((d: unknown) => {
           if (d && typeof d === "object" && "indices" in d) {
