@@ -4,6 +4,9 @@ import './LandingPage.css';
 import { useNavigate } from 'react-router-dom';
 import { Footer } from './footer';
 
+interface MarketIndex { name: string; value: number; change_pct: number; }
+interface MarketData  { market_status: string; indices: MarketIndex[]; }
+
 export default function LandingPage() {
   const BASE_URL = "https://my-product-backend-j1hu.onrender.com";
   const [email, setEmail] = useState('');
@@ -17,6 +20,31 @@ export default function LandingPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [isDark, setIsDark] = useState(() => localStorage.getItem("theme") !== "light");
   const navigate=useNavigate();
+
+  const [marketData, setMarketData] = useState<MarketData | null>(null);
+
+  useEffect(() => {
+    let controller = new AbortController();
+
+    const fetchMarket = () => {
+      controller.abort();
+      controller = new AbortController();
+      fetch('http://localhost:8000/api/market/indices', { signal: controller.signal })
+        .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+        .then((d: unknown) => {
+          if (d && typeof d === "object" && "indices" in d) {
+            const data = d as MarketData;
+            data.indices = Array.isArray(data.indices) ? data.indices : [];
+            setMarketData(data);
+          }
+        })
+        .catch(e => { if (e?.name !== "AbortError") console.error("[market/indices]", e); });
+    };
+
+    fetchMarket();
+    const id = setInterval(fetchMarket, 10_000);
+    return () => { clearInterval(id); controller.abort(); };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("theme", isDark ? "dark" : "light");
@@ -84,27 +112,37 @@ export default function LandingPage() {
     <div className={`landing-page-root${isDark ? "" : " light-mode"}`}>
 
       {/* 1. HORIZONTAL LIVE PRICE MARQUEE */}
-      <div className="ticker-wrap">
-        <div className="ticker-move">
-          <div style={{ display: 'inline-flex' }}>
-            <span className="ticker-item">NIFTY 50 <span className="ticker-up">24,532.10 (+0.45%)</span></span>
-            <span className="ticker-item">SENSEX <span className="ticker-up">80,123.50 (+0.51%)</span></span>
-            <span className="ticker-item">BANK NIFTY <span className="ticker-down">52,100.20 (-0.12%)</span></span>
-            <span className="ticker-item">INDIA VIX <span className="ticker-down">12.45 (-3.15%)</span></span>
-            <span className="ticker-item">TCS <span className="ticker-up">3,982.15 (+0.85%)</span></span>
-            <span className="ticker-item">RELIANCE <span className="ticker-up">2,912.40 (+1.20%)</span></span>
+      {(() => {
+        const isOpen = marketData?.market_status === "open";
+        const dotColor = isOpen ? "#4ade80" : "#f87171";
+        const items = marketData?.indices ?? [];
+        const renderItems = () => items.map((idx, i) => {
+          const chgPct = (typeof idx.change_pct === "number" && !isNaN(idx.change_pct)) ? idx.change_pct : 0;
+          const positive = chgPct >= 0;
+          const pct = (positive ? "+" : "") + chgPct.toFixed(2) + "%";
+          const rawVal = (typeof idx.value === "number" && !isNaN(idx.value)) ? idx.value : null;
+          const val = rawVal != null ? rawVal.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—";
+          return (
+            <span key={i} className="ticker-item">
+              <span className={isOpen ? "dot-live" : undefined} style={{ display: "inline-block", width: "7px", height: "7px", borderRadius: "50%", background: dotColor, boxShadow: `0 0 5px ${dotColor}`, verticalAlign: "middle", marginRight: "6px" }} />
+              {idx.name ? String(idx.name).toUpperCase() : "—"}{" "}
+              <span className={positive ? "ticker-up" : "ticker-down"}>{val} ({pct})</span>
+            </span>
+          );
+        });
+        return (
+          <div className="ticker-wrap">
+            <span
+              className={isOpen ? "dot-live" : undefined}
+              style={{ width: "7px", height: "7px", borderRadius: "50%", background: dotColor, boxShadow: `0 0 5px ${dotColor}`, display: "inline-block", flexShrink: 0, alignSelf: "center", marginLeft: "10px" }}
+            />
+            <div className="ticker-move">
+              <div style={{ display: 'inline-flex' }}>{renderItems()}</div>
+              <div style={{ display: 'inline-flex' }}>{renderItems()}</div>
+            </div>
           </div>
-          {/* Double mapped instance to ensure continuous flow seamlessly */}
-          <div style={{ display: 'inline-flex' }}>
-            <span className="ticker-item">NIFTY 50 <span className="ticker-up">24,532.10 (+0.45%)</span></span>
-            <span className="ticker-item">SENSEX <span className="ticker-up">80,123.50 (+0.51%)</span></span>
-            <span className="ticker-item">BANK NIFTY <span className="ticker-down">52,100.20 (-0.12%)</span></span>
-            <span className="ticker-item">INDIA VIX <span className="ticker-down">12.45 (-3.15%)</span></span>
-            <span className="ticker-item">TCS <span className="ticker-up">3,982.15 (+0.85%)</span></span>
-            <span className="ticker-item">RELIANCE <span className="ticker-up">2,912.40 (+1.20%)</span></span>
-          </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* 2. DUAL COLUMN DESIGN GRID */}
       <div className="main-layout-container">

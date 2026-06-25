@@ -1,28 +1,35 @@
+import { useState, useEffect } from "react";
 import { TrendingUp, TrendingDown, Activity, PieChart, BarChart2, BookmarkPlus, Shield, Zap, Globe, ChevronRight } from "lucide-react";
 
-const liveTickers = [
-  { name: "NIFTY 50",     value: "24,141.95", change: "+0.43%", positive: true },
-  { name: "SENSEX",       value: "79,486.32", change: "+0.38%", positive: true },
-  { name: "RELIANCE",     value: "₹2,891.40", change: "+4.21%", positive: true },
-  { name: "TCS",          value: "₹3,456.75", change: "+3.87%", positive: true },
-  { name: "NIFTY BANK",   value: "51,823.10", change: "-0.21%", positive: false },
-  { name: "HDFC BANK",    value: "₹1,678.20", change: "+2.95%", positive: true },
-  { name: "INFOSYS",      value: "₹1,543.60", change: "+2.43%", positive: true },
-  { name: "NIFTY IT",     value: "38,204.75", change: "+1.12%", positive: true },
-  { name: "USD/INR",      value: "83.54",     change: "-0.08%", positive: false },
-  { name: "WIPRO",        value: "₹456.30",   change: "-3.12%", positive: false },
-  { name: "GOLD",         value: "₹72,450",   change: "+0.55%", positive: true },
-  { name: "INDIA VIX",    value: "13.42",     change: "-2.85%", positive: false },
-  { name: "BAJAJ FIN",    value: "₹7,234.80", change: "+2.18%", positive: true },
-  { name: "CRUDE OIL",    value: "$78.32",    change: "-1.24%", positive: false },
-  { name: "NIFTY MIDCAP", value: "56,312.40", change: "+0.67%", positive: true },
-  { name: "NIFTY PHARMA", value: "19,876.30", change: "+0.92%", positive: true },
-];
+const BASE_URL = "https://my-product-backend-j1hu.onrender.com";
 
-const indices = [
-  { icon: TrendingUp, title: "NIFTY 50",   value: "24,141.95", change: "+103.12", pct: "+0.43%", positive: true,  accent: "#3b82f6", bg: "rgba(59,130,246,0.08)",  border: "rgba(59,130,246,0.2)" },
-  { icon: Activity,   title: "SENSEX",     value: "79,486.32", change: "+301.14", pct: "+0.38%", positive: true,  accent: "#10b981", bg: "rgba(16,185,129,0.08)",  border: "rgba(16,185,129,0.2)" },
-  { icon: BarChart2,  title: "NIFTY BANK", value: "51,823.10", change: "-109.18", pct: "-0.21%", positive: false, accent: "#f59e0b", bg: "rgba(245,158,11,0.08)",  border: "rgba(245,158,11,0.2)" },
+interface MarketIndex {
+  name: string;
+  stock_code: string;
+  value: number;
+  change: number;
+  change_pct: number;
+}
+
+interface MarketData {
+  market_status: string;
+  indices: MarketIndex[];
+}
+
+function fmt(n: unknown): string {
+  if (n == null || typeof n !== "number" || isNaN(n)) return "—";
+  return n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+}
+
+function fmtPct(n: unknown): string {
+  if (n == null || typeof n !== "number" || isNaN(n)) return "—";
+  return (n >= 0 ? "+" : "") + n.toFixed(2) + "%";
+}
+
+const INDEX_CONFIG = [
+  { key: "Nifty 50",   title: "NIFTY 50",   icon: TrendingUp, accent: "#3b82f6", bg: "rgba(59,130,246,0.08)",  border: "rgba(59,130,246,0.2)"  },
+  { key: "Sensex",     title: "SENSEX",     icon: Activity,   accent: "#10b981", bg: "rgba(16,185,129,0.08)",  border: "rgba(16,185,129,0.2)"  },
+  { key: "Bank Nifty", title: "NIFTY BANK", icon: BarChart2,  accent: "#f59e0b", bg: "rgba(245,158,11,0.08)",  border: "rgba(245,158,11,0.2)"  },
 ];
 
 const gainers = [
@@ -112,6 +119,66 @@ function SectionHeading({ title, sub, T }: { title: string; sub?: string; T: typ
 
 export function HeroSection({ isDark }: { isDark: boolean }) {
   const T = isDark ? DARK : LIGHT;
+  const [marketData, setMarketData] = useState<MarketData | null>(null);
+
+  useEffect(() => {
+    let controller = new AbortController();
+
+    const fetchData = () => {
+      controller.abort();
+      controller = new AbortController();
+      fetch('http://localhost:8000/api/market/indices', { signal: controller.signal })
+        .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+        .then((d: unknown) => {
+          if (d && typeof d === "object" && "indices" in d) {
+            const data = d as MarketData;
+            data.indices = Array.isArray(data.indices) ? data.indices : [];
+            setMarketData(data);
+          }
+        })
+        .catch(e => { if (e?.name !== "AbortError") console.error("[market/indices]", e); });
+    };
+
+    fetchData();
+    const id = setInterval(fetchData, 10_000);
+    return () => { clearInterval(id); controller.abort(); };
+  }, []);
+
+  const marketOpen = marketData?.market_status === "open";
+  const statusColor = marketOpen ? "#4ade80" : "#f87171";
+  const statusLabel = marketOpen ? "MARKETS LIVE" : "MARKET CLOSED";
+
+  const apiIndices = Array.isArray(marketData?.indices) ? marketData!.indices : [];
+
+  function resolvedPct(value: number, change: number, changePct: number): number {
+    if (changePct !== 0) return changePct;
+    const prev = value - change;
+    if (prev > 0 && change !== 0) return (change / prev) * 100;
+    return 0;
+  }
+
+  const indexCards = INDEX_CONFIG.map(cfg => {
+    const live = apiIndices.find(i => i.name === cfg.key);
+    const chg = live?.change ?? 0;
+    const pct = live ? resolvedPct(live.value ?? 0, chg, live.change_pct ?? 0) : 0;
+    return {
+      ...cfg,
+      value: live ? fmt(live.value) : "—",
+      change: live ? (chg >= 0 ? "+" : "") + fmt(Math.abs(chg)) : "—",
+      pct: live ? fmtPct(pct) : "—",
+      positive: live ? pct >= 0 : true,
+    };
+  });
+
+  const tickerRows = apiIndices.map(i => {
+    const pct = resolvedPct(i.value ?? 0, i.change ?? 0, i.change_pct ?? 0);
+    return {
+      name: i.name ? String(i.name).toUpperCase() : "—",
+      value: fmt(i.value),
+      change: fmtPct(pct),
+      positive: pct >= 0,
+    };
+  });
 
   return (
     <div style={{ background: T.bg }}>
@@ -121,9 +188,12 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
         <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
             <h1 style={{ fontSize: "19px", fontWeight: 700, color: T.text, margin: 0 }}>Market Dashboard</h1>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: "100px", padding: "3px 10px" }}>
-              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#4ade80", boxShadow: "0 0 6px #4ade80", display: "inline-block" }} />
-              <span style={{ fontSize: "11px", color: "#4ade80", fontWeight: 700, letterSpacing: "0.5px" }}>MARKETS LIVE</span>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: `${statusColor}14`, border: `1px solid ${statusColor}33`, borderRadius: "100px", padding: "3px 10px" }}>
+              <span
+                className={marketOpen ? "dot-live" : undefined}
+                style={{ width: "6px", height: "6px", borderRadius: "50%", background: statusColor, boxShadow: `0 0 6px ${statusColor}`, display: "inline-block" }}
+              />
+              <span style={{ fontSize: "11px", color: statusColor, fontWeight: 700, letterSpacing: "0.5px" }}>{statusLabel}</span>
             </div>
           </div>
           <span style={{ fontSize: "12px", color: T.textDim }}>NSE · BSE · MCX · Updated just now</span>
@@ -137,7 +207,7 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
 
           {/* Three index cards */}
           <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
-            {indices.map((stat) => {
+            {indexCards.map((stat) => {
               const Icon = stat.icon;
               return (
                 <div key={stat.title} style={{ background: stat.bg, border: `1px solid ${stat.border}`, borderRadius: "16px", padding: "20px 20px 18px" }}>
@@ -162,21 +232,28 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
           {/* Live Ticker — vertical upward scroll */}
           <div style={{ width: "248px", flexShrink: 0, background: T.card, border: `1px solid ${T.borderMid}`, borderRadius: "16px", overflow: "hidden" }}>
             <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#4ade80", boxShadow: "0 0 5px #4ade80", display: "inline-block" }} />
-              <span style={{ fontSize: "12px", fontWeight: 700, color: T.text }}>Live Prices</span>
+              <span
+                className={marketOpen ? "dot-live" : undefined}
+                style={{ width: "7px", height: "7px", borderRadius: "50%", background: statusColor, boxShadow: `0 0 5px ${statusColor}`, display: "inline-block" }}
+              />
+              <span style={{ fontSize: "12px", fontWeight: 700, color: T.text }}>{marketOpen ? "Live Prices" : "Last Prices"}</span>
             </div>
             <div style={{ height: "172px", overflow: "hidden" }}>
-              <div className="animate-ticker-up">
-                {[...liveTickers, ...liveTickers].map((t, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 14px", borderBottom: `1px solid ${T.borderSubtle}` }}>
-                    <span style={{ fontSize: "12px", fontWeight: 600, color: T.textBody }}>{t.name}</span>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: "12px", fontWeight: 600, color: T.text }}>{t.value}</div>
-                      <div style={{ fontSize: "11px", fontWeight: 600, color: t.positive ? "#22c55e" : "#f87171" }}>{t.change}</div>
+              {tickerRows.length > 0 ? (
+                <div className="animate-ticker-up">
+                  {[...tickerRows, ...tickerRows].map((t, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 14px", borderBottom: `1px solid ${T.borderSubtle}` }}>
+                      <span style={{ fontSize: "12px", fontWeight: 600, color: T.textBody }}>{t.name}</span>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: "12px", fontWeight: 600, color: T.text }}>{t.value}</div>
+                        <div style={{ fontSize: "11px", fontWeight: 600, color: t.positive ? "#22c55e" : "#f87171" }}>{t.change}</div>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: "12px", color: T.textDim }}>Loading…</div>
+              )}
             </div>
           </div>
 
