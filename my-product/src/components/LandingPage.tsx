@@ -132,10 +132,6 @@ export default function LandingPage() {
         });
         return (
           <div className="ticker-wrap">
-            <span
-              className={isOpen ? "dot-live" : undefined}
-              style={{ width: "7px", height: "7px", borderRadius: "50%", background: dotColor, boxShadow: `0 0 5px ${dotColor}`, display: "inline-block", flexShrink: 0, alignSelf: "center", marginLeft: "10px" }}
-            />
             <div className="ticker-move">
               <div style={{ display: 'inline-flex' }}>{renderItems()}</div>
               <div style={{ display: 'inline-flex' }}>{renderItems()}</div>
