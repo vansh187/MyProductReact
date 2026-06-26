@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BarChart2, Shield, Zap, User, Lock, Eye, EyeOff, Sun, Moon } from 'lucide-react';
 import './LandingPage.css';
 import { useNavigate } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
 import { Footer } from './footer';
 
 interface MarketIndex { name: string; value: number; change_pct: number; }
@@ -19,7 +20,31 @@ export default function LandingPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isDark, setIsDark] = useState(() => localStorage.getItem("theme") !== "light");
-  const navigate=useNavigate();
+  const navigate = useNavigate();
+
+  const handleGoogleCredential = async (idToken: string) => {
+    setIsLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch(`${BASE_URL}/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id_token: idToken }),
+      });
+      const data = await res.json();
+      const token = data?.Token ?? data?.token;
+      if (token) {
+        localStorage.setItem('authToken', token);
+        navigate('/home');
+      } else {
+        setErrorMsg(data?.Message ?? 'Google login failed. Please try again.');
+      }
+    } catch {
+      setErrorMsg('Network error. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const [marketData, setMarketData] = useState<MarketData | null>(() => {
     try {
@@ -340,15 +365,19 @@ export default function LandingPage() {
             </div>
 
             <div className="oauth-button-row">
-              <button className="oauth-btn" onClick={() => alert('OAuth Integration Coming Soon')}>
-                <svg width="18" height="18" viewBox="0 0 24 24">
-                  <path fill="#EA4335" d="M12 5.04c1.64 0 3.12.56 4.28 1.67l3.2-3.2C17.52 1.58 14.96 1 12 1 7.35 1 3.42 3.67 1.52 7.56l3.72 2.88C6.12 7.52 8.84 5.04 12 5.04z"/>
-                  <path fill="#4285F4" d="M23.48 12.25c0-.82-.07-1.6-.22-2.36H12v4.51h6.44c-.28 1.47-1.11 2.71-2.36 3.55l3.66 2.84c2.14-1.98 3.38-4.89 3.38-8.54z"/>
-                  <path fill="#FBBC05" d="M5.24 14.44A7.16 7.16 0 0 1 4.8 12c0-.85.15-1.67.44-2.44L1.52 6.68A11.94 11.94 0 0 0 0 12c0 1.92.45 3.74 1.52 5.32l3.72-2.88z"/>
-                  <path fill="#34A853" d="M12 23c3.24 0 5.97-1.08 7.96-2.91l-3.66-2.84c-1.01.68-2.31 1.09-4.3 1.09-3.16 0-5.88-2.48-6.84-5.40L1.44 17.8C3.34 21.69 7.27 24 12 24z"/>
-                </svg>
-              </button>
-
+              <GoogleLogin
+                onSuccess={(credentialResponse) => {
+                  if (credentialResponse.credential) {
+                    handleGoogleCredential(credentialResponse.credential);
+                  }
+                }}
+                onError={() => setErrorMsg('Google login was cancelled or failed.')}
+                theme="outline"
+                size="large"
+                width="100%"
+                text="signin_with"
+                shape="rectangular"
+              />
             </div>
 
             <div className="view-toggle-footer">
