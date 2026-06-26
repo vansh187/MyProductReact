@@ -218,7 +218,7 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
     try {
       const token = localStorage.getItem("authToken");
       if (token) {
-        await fetch("http://localhost:8000/v1/logout", {
+        await fetch("https://my-product-backend-j1hu.onrender.com/v1/logout", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         });
