@@ -119,7 +119,13 @@ function SectionHeading({ title, sub, T }: { title: string; sub?: string; T: typ
 
 export function HeroSection({ isDark }: { isDark: boolean }) {
   const T = isDark ? DARK : LIGHT;
-  const [marketData, setMarketData] = useState<MarketData | null>(null);
+  const [marketData, setMarketData] = useState<MarketData | null>(() => {
+    try {
+      const cached = localStorage.getItem("cachedMarketData");
+      if (cached) return JSON.parse(cached) as MarketData;
+    } catch { /* ignore */ }
+    return null;
+  });
 
   useEffect(() => {
     let controller = new AbortController();
@@ -134,6 +140,7 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
             const data = d as MarketData;
             data.indices = Array.isArray(data.indices) ? data.indices : [];
             setMarketData(data);
+            localStorage.setItem("cachedMarketData", JSON.stringify(data));
           }
         })
         .catch(e => { if (e?.name !== "AbortError") console.error("[market/indices]", e); });
