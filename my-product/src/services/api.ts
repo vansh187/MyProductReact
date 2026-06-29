@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 const API = axios.create({
-  baseURL: 'http://127.0.0.1:8000', // Change this to your FastAPI backend URL if different
+  baseURL: 'http://api.primepiptrade.com:8000',
   headers: {
     'Content-Type': 'application/json',
   },
