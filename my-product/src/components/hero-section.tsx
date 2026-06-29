@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { TrendingUp, TrendingDown, Activity, PieChart, BarChart2, BookmarkPlus, Shield, Zap, Globe, ChevronRight } from "lucide-react";
 
-const BASE_URL = "http://api.primepiptrade.com:8000";
+const BASE_URL = "https://api.primepiptrade.com:8000";
 
 interface MarketIndex {
   name: string;

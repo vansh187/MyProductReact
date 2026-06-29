@@ -236,7 +236,7 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
     }
   }
 
-  const BASE_URL = "http://api.primepiptrade.com:8000";
+  const BASE_URL = "https://api.primepiptrade.com:8000";
 
   function handleSessionExpired() {
     localStorage.clear();
