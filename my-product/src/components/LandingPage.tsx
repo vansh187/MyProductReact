@@ -145,7 +145,7 @@ export default function LandingPage() {
 
       {/* 1. HORIZONTAL LIVE PRICE MARQUEE */}
       {(() => {
-        const isOpen = marketData?.market_status === "open";
+        const isOpen = marketData?.market_status?.toLowerCase() === "open";
         const dotColor = isOpen ? "#4ade80" : "#f87171";
         const items = marketData?.indices ?? [];
         const renderItems = () => items.map((idx, i) => {

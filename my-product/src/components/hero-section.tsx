@@ -151,7 +151,7 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
     return () => { clearInterval(id); controller.abort(); };
   }, []);
 
-  const marketOpen = marketData?.market_status === "open";
+  const marketOpen = marketData?.market_status?.toLowerCase() === "open";
   const statusColor = marketOpen ? "#4ade80" : "#f87171";
   const statusLabel = marketOpen ? "MARKETS LIVE" : "MARKET CLOSED";
 
