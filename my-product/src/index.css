@@ -144,6 +144,15 @@
   50% { opacity: 0.4; }
 }
 
+@keyframes dotBlink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.7); }
+}
+
+.dot-live {
+  animation: dotBlink 1s ease-in-out infinite;
+}
+
 .animate-ticker-up {
   animation: tickerUp 28s linear infinite;
   display: flex;

@@ -24,6 +24,50 @@ interface HeaderProps {
   onToggleTheme: () => void;
 }
 
+/* ── Theme colours ────────────────────────────────────── */
+const TH = {
+  dark: {
+    panelBg:       "#161b22",
+    panelBorder:   "rgba(255,255,255,0.1)",
+    panelShadow:   "0 16px 48px rgba(0,0,0,0.5),0 2px 8px rgba(0,0,0,0.3)",
+    text:          "#e6edf3",
+    textMuted:     "#8b949e",
+    textDim:       "#6e7681",
+    hover:         "rgba(255,255,255,0.05)",
+    divider:       "rgba(255,255,255,0.06)",
+    inputBg:       "rgba(255,255,255,0.04)",
+    inputBorder:   "rgba(255,255,255,0.12)",
+    chipBg:        "rgba(255,255,255,0.04)",
+    chipBorder:    "rgba(255,255,255,0.09)",
+    closeBtnBg:    "rgba(255,255,255,0.07)",
+    closeBtnBorder:"rgba(255,255,255,0.08)",
+    skeletonBg:    "rgba(255,255,255,0.08)",
+    secureLine:    "rgba(255,255,255,0.06)",
+    triggerBg:     "rgba(255,255,255,0.08)",
+    triggerColor:  "#c9d1d9",
+  },
+  light: {
+    panelBg:       "#ffffff",
+    panelBorder:   "rgba(0,0,0,0.1)",
+    panelShadow:   "0 16px 48px rgba(0,0,0,0.12),0 2px 8px rgba(0,0,0,0.06)",
+    text:          "#0f172a",
+    textMuted:     "#64748b",
+    textDim:       "#94a3b8",
+    hover:         "rgba(0,0,0,0.04)",
+    divider:       "rgba(0,0,0,0.06)",
+    inputBg:       "rgba(0,0,0,0.03)",
+    inputBorder:   "rgba(0,0,0,0.12)",
+    chipBg:        "rgba(0,0,0,0.03)",
+    chipBorder:    "rgba(0,0,0,0.09)",
+    closeBtnBg:    "rgba(0,0,0,0.05)",
+    closeBtnBorder:"rgba(0,0,0,0.1)",
+    skeletonBg:    "rgba(0,0,0,0.08)",
+    secureLine:    "rgba(0,0,0,0.06)",
+    triggerBg:     "rgba(0,0,0,0.05)",
+    triggerColor:  "#475569",
+  },
+};
+
 /* ── Nav data ─────────────────────────────────────────── */
 const NAV_ITEMS = [
   {
@@ -69,7 +113,8 @@ const NAV_ITEMS = [
 ];
 
 /* ── NavDropdown ──────────────────────────────────────── */
-function NavDropdown({ label, accent, sections }: typeof NAV_ITEMS[0]) {
+function NavDropdown({ label, accent, sections, isDark }: typeof NAV_ITEMS[0] & { isDark: boolean }) {
+  const C = isDark ? TH.dark : TH.light;
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -82,8 +127,8 @@ function NavDropdown({ label, accent, sections }: typeof NAV_ITEMS[0]) {
       <button style={{
         display: "flex", alignItems: "center", gap: "5px",
         padding: "6px 12px", borderRadius: "8px", border: "none", cursor: "pointer",
-        background: open ? "rgba(255,255,255,0.08)" : "transparent",
-        color: open ? "#e6edf3" : "#c9d1d9",
+        background: open ? C.triggerBg : "transparent",
+        color: open ? C.text : C.triggerColor,
         fontSize: "14px", fontWeight: 500,
         transition: "background 0.15s, color 0.15s",
       }}>
@@ -92,7 +137,7 @@ function NavDropdown({ label, accent, sections }: typeof NAV_ITEMS[0]) {
           width: "13px", height: "13px",
           transform: open ? "rotate(180deg)" : "rotate(0deg)",
           transition: "transform 0.2s",
-          color: "#8b949e",
+          color: C.textMuted,
         }} />
       </button>
 
@@ -101,10 +146,10 @@ function NavDropdown({ label, accent, sections }: typeof NAV_ITEMS[0]) {
         <div style={{
           position: "absolute", top: "calc(100% + 6px)", left: 0,
           zIndex: 200, minWidth: "320px",
-          background: "#161b22",
-          border: "1px solid rgba(255,255,255,0.1)",
+          background: C.panelBg,
+          border: `1px solid ${C.panelBorder}`,
           borderRadius: "14px",
-          boxShadow: "0 16px 48px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)",
+          boxShadow: C.panelShadow,
           padding: "6px",
           overflow: "hidden",
         }}>
@@ -114,7 +159,7 @@ function NavDropdown({ label, accent, sections }: typeof NAV_ITEMS[0]) {
           {sections.map((section, si) => (
             <div key={si} style={{ marginBottom: si < sections.length - 1 ? "4px" : 0 }}>
               {/* Section heading */}
-              <div style={{ padding: "4px 10px 6px", fontSize: "10px", fontWeight: 700, color: "#6e7681", textTransform: "uppercase", letterSpacing: "0.8px" }}>
+              <div style={{ padding: "4px 10px 6px", fontSize: "10px", fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.8px" }}>
                 {section.heading}
               </div>
 
@@ -122,7 +167,7 @@ function NavDropdown({ label, accent, sections }: typeof NAV_ITEMS[0]) {
                 const Icon = item.icon;
                 return (
                   <a key={item.title} href="#" style={{ textDecoration: "none", display: "block" }}
-                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.05)"}
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = C.hover}
                     onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
                   >
                     <div style={{
@@ -138,17 +183,17 @@ function NavDropdown({ label, accent, sections }: typeof NAV_ITEMS[0]) {
                         <Icon style={{ width: "16px", height: "16px", color: item.color }} />
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: "13px", fontWeight: 600, color: "#e6edf3", marginBottom: "2px" }}>{item.title}</div>
-                        <div style={{ fontSize: "11px", color: "#8b949e", lineHeight: 1.4 }}>{item.desc}</div>
+                        <div style={{ fontSize: "13px", fontWeight: 600, color: C.text, marginBottom: "2px" }}>{item.title}</div>
+                        <div style={{ fontSize: "11px", color: C.textMuted, lineHeight: 1.4 }}>{item.desc}</div>
                       </div>
-                      <ArrowUpRight style={{ width: "13px", height: "13px", color: "#8b949e", flexShrink: 0, opacity: 0.6 }} />
+                      <ArrowUpRight style={{ width: "13px", height: "13px", color: C.textMuted, flexShrink: 0, opacity: 0.6 }} />
                     </div>
                   </a>
                 );
               })}
 
               {si < sections.length - 1 && (
-                <div style={{ height: "1px", background: "rgba(255,255,255,0.06)", margin: "4px 10px" }} />
+                <div style={{ height: "1px", background: C.divider, margin: "4px 10px" }} />
               )}
             </div>
           ))}
@@ -173,7 +218,7 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
     try {
       const token = localStorage.getItem("authToken");
       if (token) {
-        await fetch("http://localhost:8000/v1/logout", {
+        await fetch("https://my-product-backend-j1hu.onrender.com/v1/logout", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         });
@@ -191,7 +236,7 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
     }
   }
 
-  const BASE_URL = "https://my-product-backend-j1hu.onrender.com";
+  const BASE_URL = "http://api.primepiptrade.com:8000";
 
   function handleSessionExpired() {
     localStorage.clear();
@@ -363,7 +408,7 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
 
           {/* Nav items */}
           {NAV_ITEMS.map(nav => (
-            <NavDropdown key={nav.label} {...nav} />
+            <NavDropdown key={nav.label} {...nav} isDark={isDark} />
           ))}
         </div>
 
@@ -371,16 +416,17 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
 
           {/* ── Search ── */}
+          {(() => { const S = isDark ? TH.dark : TH.light; return (
           <div style={{
             display: "flex", alignItems: "center", gap: "8px",
             height: "36px", width: "220px", padding: "0 12px",
-            background: "rgba(255,255,255,0.05)",
-            border: `1px solid ${searchFocus ? "rgba(59,130,246,0.55)" : "rgba(255,255,255,0.1)"}`,
+            background: S.inputBg,
+            border: `1px solid ${searchFocus ? "rgba(59,130,246,0.55)" : S.inputBorder}`,
             borderRadius: "10px",
             boxShadow: searchFocus ? "0 0 0 3px rgba(59,130,246,0.1)" : "none",
             transition: "border-color 0.2s, box-shadow 0.2s",
           }}>
-            <Search style={{ width: "14px", height: "14px", color: "#6e7681", flexShrink: 0 }} />
+            <Search style={{ width: "14px", height: "14px", color: S.textDim, flexShrink: 0 }} />
             <input
               type="text"
               placeholder="Search stocks, funds…"
@@ -388,11 +434,11 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
               onBlur={() => setSearchFocus(false)}
               style={{
                 flex: 1, background: "none", border: "none", outline: "none",
-                color: "#e6edf3", fontSize: "13px",
-                "::placeholder": { color: "#6e7681" },
+                color: S.text, fontSize: "13px",
               } as React.CSSProperties}
             />
           </div>
+          ); })()}
 
           {/* ── Add Funds (Wallet) ── */}
           <div style={{ position: "relative" }}>
@@ -422,23 +468,25 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
               Add Funds
             </button>
 
-            {walletOpen && (
+            {walletOpen && (() => {
+              const W = isDark ? TH.dark : TH.light;
+              return (
               <>
                 <div style={{ position: "fixed", inset: 0, zIndex: 150 }} onClick={() => setWalletOpen(false)} />
                 <div style={{
                   position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 200,
                   width: "304px",
-                  background: "#161b22",
-                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: W.panelBg,
+                  border: `1px solid ${W.panelBorder}`,
                   borderRadius: "16px",
-                  boxShadow: "0 24px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03)",
+                  boxShadow: W.panelShadow,
                   overflow: "hidden",
                 }}>
                   {/* Header */}
                   <div style={{
                     padding: "16px 18px",
                     background: "linear-gradient(135deg,rgba(59,130,246,0.14),rgba(99,102,241,0.08))",
-                    borderBottom: "1px solid rgba(255,255,255,0.07)",
+                    borderBottom: `1px solid ${W.panelBorder}`,
                     display: "flex", alignItems: "center", justifyContent: "space-between",
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "11px" }}>
@@ -451,14 +499,14 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
                         <Wallet style={{ width: "18px", height: "18px", color: "#fff" }} />
                       </div>
                       <div>
-                        <div style={{ fontSize: "14px", fontWeight: 700, color: "#e6edf3", lineHeight: 1.2 }}>Add Funds</div>
-                        <div style={{ fontSize: "11px", color: "#8b949e", marginTop: "1px" }}>Secured by Razorpay</div>
+                        <div style={{ fontSize: "14px", fontWeight: 700, color: W.text, lineHeight: 1.2 }}>Add Funds</div>
+                        <div style={{ fontSize: "11px", color: W.textMuted, marginTop: "1px" }}>Secured by Razorpay</div>
                       </div>
                     </div>
                     <button onClick={() => setWalletOpen(false)} style={{
                       width: "28px", height: "28px", borderRadius: "7px",
-                      background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.08)",
-                      cursor: "pointer", color: "#8b949e",
+                      background: W.closeBtnBg, border: `1px solid ${W.closeBtnBorder}`,
+                      cursor: "pointer", color: W.textMuted,
                       display: "flex", alignItems: "center", justifyContent: "center",
                     }}>
                       <X style={{ width: "13px", height: "13px" }} />
@@ -473,9 +521,9 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
                       borderRadius: "10px", padding: "10px 14px",
                     }}>
                       <div>
-                        <div style={{ fontSize: "10px", color: "#8b949e", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Available Balance</div>
+                        <div style={{ fontSize: "10px", color: W.textMuted, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Available Balance</div>
                         {balanceLoading ? (
-                          <div style={{ height: "24px", width: "90px", borderRadius: "6px", background: "rgba(255,255,255,0.08)", animation: "pulse 1.5s ease-in-out infinite" }} />
+                          <div style={{ height: "24px", width: "90px", borderRadius: "6px", background: W.skeletonBg, animation: "pulse 1.5s ease-in-out infinite" }} />
                         ) : (
                           <div style={{ fontSize: "20px", fontWeight: 800, color: "#4ade80", letterSpacing: "-0.5px" }}>
                             {walletBalance !== null
@@ -499,13 +547,13 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
 
                     {/* Amount Input */}
                     <div>
-                      <div style={{ fontSize: "11px", fontWeight: 600, color: "#8b949e", textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "7px" }}>
+                      <div style={{ fontSize: "11px", fontWeight: 600, color: W.textMuted, textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: "7px" }}>
                         Enter Amount (INR)
                       </div>
                       <div style={{
                         display: "flex", alignItems: "center",
-                        background: "rgba(255,255,255,0.04)",
-                        border: "1px solid rgba(255,255,255,0.12)",
+                        background: W.inputBg,
+                        border: `1px solid ${W.inputBorder}`,
                         borderRadius: "10px", height: "46px", padding: "0 14px",
                         gap: "8px",
                       }}>
@@ -519,11 +567,11 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
                           min={1}
                           style={{
                             flex: 1, background: "none", border: "none", outline: "none",
-                            color: "#e6edf3", fontSize: "20px", fontWeight: 700, letterSpacing: "-0.5px",
+                            color: W.text, fontSize: "20px", fontWeight: 700, letterSpacing: "-0.5px",
                           }}
                         />
                         {amount && (
-                          <button onClick={() => setAmount("")} style={{ background: "none", border: "none", cursor: "pointer", color: "#6e7681", padding: 0 }}>
+                          <button onClick={() => setAmount("")} style={{ background: "none", border: "none", cursor: "pointer", color: W.textDim, padding: 0 }}>
                             <X style={{ width: "13px", height: "13px" }} />
                           </button>
                         )}
@@ -535,9 +583,9 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
                       {[500, 1000, 5000, 10000].map(p => (
                         <button key={p} onClick={() => setAmount(String(p))} style={{
                           height: "32px", borderRadius: "8px",
-                          background: amount === String(p) ? "rgba(59,130,246,0.22)" : "rgba(255,255,255,0.04)",
-                          border: `1px solid ${amount === String(p) ? "rgba(59,130,246,0.5)" : "rgba(255,255,255,0.09)"}`,
-                          color: amount === String(p) ? "#60a5fa" : "#8b949e",
+                          background: amount === String(p) ? "rgba(59,130,246,0.22)" : W.chipBg,
+                          border: `1px solid ${amount === String(p) ? "rgba(59,130,246,0.5)" : W.chipBorder}`,
+                          color: amount === String(p) ? "#60a5fa" : W.textMuted,
                           fontSize: "12px", fontWeight: 600, cursor: "pointer",
                           transition: "all 0.15s",
                         }}>
@@ -566,14 +614,15 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
                     </button>
 
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                      <div style={{ height: "1px", flex: 1, background: "rgba(255,255,255,0.06)" }} />
-                      <span style={{ fontSize: "10px", color: "#6e7681" }}>100% secure · Instant credit</span>
-                      <div style={{ height: "1px", flex: 1, background: "rgba(255,255,255,0.06)" }} />
+                      <div style={{ height: "1px", flex: 1, background: W.secureLine }} />
+                      <span style={{ fontSize: "10px", color: W.textDim }}>100% secure · Instant credit</span>
+                      <div style={{ height: "1px", flex: 1, background: W.secureLine }} />
                     </div>
                   </div>
                 </div>
               </>
-            )}
+              );
+            })()}
           </div>
 
           {/* ── Theme Toggle ── */}
@@ -610,17 +659,17 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
             <DropdownMenuContent
               align="end"
               className="w-44 z-[300]"
-              style={{ background: "#161b22", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", padding: "4px" }}
+              style={{ background: isDark ? TH.dark.panelBg : TH.light.panelBg, border: `1px solid ${isDark ? TH.dark.panelBorder : TH.light.panelBorder}`, borderRadius: "12px", padding: "4px" }}
             >
-              <DropdownMenuLabel style={{ color: "#8b949e", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.6px" }}>
+              <DropdownMenuLabel style={{ color: isDark ? TH.dark.textMuted : TH.light.textMuted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.6px" }}>
                 My Account
               </DropdownMenuLabel>
-              <DropdownMenuSeparator style={{ background: "rgba(255,255,255,0.07)" }} />
-              <DropdownMenuItem style={{ color: "#e6edf3", fontSize: "13px", borderRadius: "7px", padding: "8px 10px", cursor: "pointer", gap: "9px" }}>
-                <Settings style={{ width: "14px", height: "14px", color: "#8b949e" }} />
+              <DropdownMenuSeparator style={{ background: isDark ? TH.dark.divider : TH.light.divider }} />
+              <DropdownMenuItem style={{ color: isDark ? TH.dark.text : TH.light.text, fontSize: "13px", borderRadius: "7px", padding: "8px 10px", cursor: "pointer", gap: "9px" }}>
+                <Settings style={{ width: "14px", height: "14px", color: isDark ? TH.dark.textMuted : TH.light.textMuted }} />
                 Settings
               </DropdownMenuItem>
-              <DropdownMenuSeparator style={{ background: "rgba(255,255,255,0.07)" }} />
+              <DropdownMenuSeparator style={{ background: isDark ? TH.dark.divider : TH.light.divider }} />
               <DropdownMenuItem
                 onClick={handleLogout}
                 style={{ color: "#f87171", fontSize: "13px", borderRadius: "7px", padding: "8px 10px", cursor: "pointer", gap: "9px" }}

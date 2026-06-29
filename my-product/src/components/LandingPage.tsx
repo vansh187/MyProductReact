@@ -2,10 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { BarChart2, Shield, Zap, User, Lock, Eye, EyeOff, Sun, Moon } from 'lucide-react';
 import './LandingPage.css';
 import { useNavigate } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
 import { Footer } from './footer';
 
+interface MarketIndex { name: string; value: number; change_pct: number; }
+interface MarketData  { market_status: string; indices: MarketIndex[]; }
+
 export default function LandingPage() {
-  const BASE_URL = "https://my-product-backend-j1hu.onrender.com";
+  const BASE_URL = "http://api.primepiptrade.com:8000";
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -16,7 +21,62 @@ export default function LandingPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isDark, setIsDark] = useState(() => localStorage.getItem("theme") !== "light");
-  const navigate=useNavigate();
+  const navigate = useNavigate();
+
+  const handleGoogleCredential = async (idToken: string) => {
+    setIsLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch(`${BASE_URL}/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id_token: idToken }),
+      });
+      const data = await res.json();
+      const token = data?.Token ?? data?.token;
+      if (token) {
+        localStorage.setItem('authToken', token);
+        navigate('/home');
+      } else {
+        setErrorMsg(data?.Message ?? 'Google login failed. Please try again.');
+      }
+    } catch {
+      setErrorMsg('Network error. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const [marketData, setMarketData] = useState<MarketData | null>(() => {
+    try {
+      const cached = localStorage.getItem("cachedMarketData");
+      if (cached) return JSON.parse(cached) as MarketData;
+    } catch { /* ignore */ }
+    return null;
+  });
+
+  useEffect(() => {
+    let controller = new AbortController();
+
+    const fetchMarket = () => {
+      controller.abort();
+      controller = new AbortController();
+      fetch(`${BASE_URL}/api/market/indices`, { signal: controller.signal })
+        .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+        .then((d: unknown) => {
+          if (d && typeof d === "object" && "indices" in d) {
+            const data = d as MarketData;
+            data.indices = Array.isArray(data.indices) ? data.indices : [];
+            setMarketData(data);
+            localStorage.setItem("cachedMarketData", JSON.stringify(data));
+          }
+        })
+        .catch(e => { if (e?.name !== "AbortError") console.error("[market/indices]", e); });
+    };
+    fetchMarket();
+    const id = setInterval(fetchMarket, 10_000);
+    return () => { clearInterval(id); controller.abort(); };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("theme", isDark ? "dark" : "light");
@@ -84,27 +144,33 @@ export default function LandingPage() {
     <div className={`landing-page-root${isDark ? "" : " light-mode"}`}>
 
       {/* 1. HORIZONTAL LIVE PRICE MARQUEE */}
-      <div className="ticker-wrap">
-        <div className="ticker-move">
-          <div style={{ display: 'inline-flex' }}>
-            <span className="ticker-item">NIFTY 50 <span className="ticker-up">24,532.10 (+0.45%)</span></span>
-            <span className="ticker-item">SENSEX <span className="ticker-up">80,123.50 (+0.51%)</span></span>
-            <span className="ticker-item">BANK NIFTY <span className="ticker-down">52,100.20 (-0.12%)</span></span>
-            <span className="ticker-item">INDIA VIX <span className="ticker-down">12.45 (-3.15%)</span></span>
-            <span className="ticker-item">TCS <span className="ticker-up">3,982.15 (+0.85%)</span></span>
-            <span className="ticker-item">RELIANCE <span className="ticker-up">2,912.40 (+1.20%)</span></span>
+      {(() => {
+        const isOpen = marketData?.market_status === "open";
+        const dotColor = isOpen ? "#4ade80" : "#f87171";
+        const items = marketData?.indices ?? [];
+        const renderItems = () => items.map((idx, i) => {
+          const chgPct = (typeof idx.change_pct === "number" && !isNaN(idx.change_pct)) ? idx.change_pct : 0;
+          const positive = chgPct >= 0;
+          const pct = (positive ? "+" : "") + chgPct.toFixed(2) + "%";
+          const rawVal = (typeof idx.value === "number" && !isNaN(idx.value)) ? idx.value : null;
+          const val = rawVal != null ? rawVal.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—";
+          return (
+            <span key={i} className="ticker-item">
+              <span className={isOpen ? "dot-live" : undefined} style={{ display: "inline-block", width: "7px", height: "7px", borderRadius: "50%", background: dotColor, boxShadow: `0 0 5px ${dotColor}`, verticalAlign: "middle", marginRight: "6px" }} />
+              {idx.name ? String(idx.name).toUpperCase() : "—"}{" "}
+              <span className={positive ? "ticker-up" : "ticker-down"}>{val} ({pct})</span>
+            </span>
+          );
+        });
+        return (
+          <div className="ticker-wrap">
+            <div className="ticker-move">
+              <div style={{ display: 'inline-flex' }}>{renderItems()}</div>
+              <div style={{ display: 'inline-flex' }}>{renderItems()}</div>
+            </div>
           </div>
-          {/* Double mapped instance to ensure continuous flow seamlessly */}
-          <div style={{ display: 'inline-flex' }}>
-            <span className="ticker-item">NIFTY 50 <span className="ticker-up">24,532.10 (+0.45%)</span></span>
-            <span className="ticker-item">SENSEX <span className="ticker-up">80,123.50 (+0.51%)</span></span>
-            <span className="ticker-item">BANK NIFTY <span className="ticker-down">52,100.20 (-0.12%)</span></span>
-            <span className="ticker-item">INDIA VIX <span className="ticker-down">12.45 (-3.15%)</span></span>
-            <span className="ticker-item">TCS <span className="ticker-up">3,982.15 (+0.85%)</span></span>
-            <span className="ticker-item">RELIANCE <span className="ticker-up">2,912.40 (+1.20%)</span></span>
-          </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* 2. DUAL COLUMN DESIGN GRID */}
       <div className="main-layout-container">
@@ -300,15 +366,19 @@ export default function LandingPage() {
             </div>
 
             <div className="oauth-button-row">
-              <button className="oauth-btn" onClick={() => alert('OAuth Integration Coming Soon')}>
-                <svg width="18" height="18" viewBox="0 0 24 24">
-                  <path fill="#EA4335" d="M12 5.04c1.64 0 3.12.56 4.28 1.67l3.2-3.2C17.52 1.58 14.96 1 12 1 7.35 1 3.42 3.67 1.52 7.56l3.72 2.88C6.12 7.52 8.84 5.04 12 5.04z"/>
-                  <path fill="#4285F4" d="M23.48 12.25c0-.82-.07-1.6-.22-2.36H12v4.51h6.44c-.28 1.47-1.11 2.71-2.36 3.55l3.66 2.84c2.14-1.98 3.38-4.89 3.38-8.54z"/>
-                  <path fill="#FBBC05" d="M5.24 14.44A7.16 7.16 0 0 1 4.8 12c0-.85.15-1.67.44-2.44L1.52 6.68A11.94 11.94 0 0 0 0 12c0 1.92.45 3.74 1.52 5.32l3.72-2.88z"/>
-                  <path fill="#34A853" d="M12 23c3.24 0 5.97-1.08 7.96-2.91l-3.66-2.84c-1.01.68-2.31 1.09-4.3 1.09-3.16 0-5.88-2.48-6.84-5.40L1.44 17.8C3.34 21.69 7.27 24 12 24z"/>
-                </svg>
-              </button>
-
+              <GoogleLogin
+                onSuccess={(credentialResponse) => {
+                  if (credentialResponse.credential) {
+                    handleGoogleCredential(credentialResponse.credential);
+                  }
+                }}
+                onError={() => setErrorMsg('Google login was cancelled or failed.')}
+                theme="outline"
+                size="large"
+                width="100%"
+                text="signin_with"
+                shape="rectangular"
+              />
             </div>
 
             <div className="view-toggle-footer">
