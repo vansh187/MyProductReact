@@ -9,7 +9,7 @@ interface MarketIndex { name: string; value: number; change_pct: number; }
 interface MarketData  { market_status: string; indices: MarketIndex[]; }
 
 export default function LandingPage() {
-  const BASE_URL = "https://api.primepiptrade.com:8000";
+  const BASE_URL = "https://api.primepiptrade.com";
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
