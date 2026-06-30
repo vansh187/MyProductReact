@@ -122,15 +122,24 @@ function SectionHeading({ title, sub, T }: { title: string; sub?: string; T: typ
 
 export function HeroSection({ isDark }: { isDark: boolean }) {
   const T = isDark ? DARK : LIGHT;
-  const [sectorData, setSectorData] = useState<SectorItem[]>([]);
-  const [gainersData, setGainersData] = useState<TopMover[]>([]);
-  const [losersData, setLosersData] = useState<TopMover[]>([]);
+  const [sectorData, setSectorData] = useState<SectorItem[]>(() => {
+    try { const c = localStorage.getItem("cachedSectorData"); if (c) return JSON.parse(c) as SectorItem[]; } catch { /* ignore */ }
+    return [];
+  });
+  const [gainersData, setGainersData] = useState<TopMover[]>(() => {
+    try { const c = localStorage.getItem("cachedTopMovers"); if (c) return (JSON.parse(c) as { gainers: TopMover[] }).gainers ?? []; } catch { /* ignore */ }
+    return [];
+  });
+  const [losersData, setLosersData] = useState<TopMover[]>(() => {
+    try { const c = localStorage.getItem("cachedTopMovers"); if (c) return (JSON.parse(c) as { losers: TopMover[] }).losers ?? []; } catch { /* ignore */ }
+    return [];
+  });
 
   useEffect(() => {
     fetch(`${BASE_URL}/api/market/top-movers`)
       .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then((d: TopMoversResponse) => {
-        if (Array.isArray(d.gainers)) setGainersData(d.gainers);
+        if (Array.isArray(d.gainers)) { setGainersData(d.gainers); localStorage.setItem("cachedTopMovers", JSON.stringify({ gainers: d.gainers, losers: d.losers ?? [] })); }
         if (Array.isArray(d.losers))  setLosersData(d.losers);
       })
       .catch(e => console.error("[market/top-movers]", e));
@@ -139,7 +148,7 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
     es.onmessage = (event) => {
       try {
         const d: TopMoversResponse = JSON.parse(event.data);
-        if (Array.isArray(d.gainers)) setGainersData(d.gainers);
+        if (Array.isArray(d.gainers)) { setGainersData(d.gainers); localStorage.setItem("cachedTopMovers", JSON.stringify({ gainers: d.gainers, losers: d.losers ?? [] })); }
         if (Array.isArray(d.losers))  setLosersData(d.losers);
       } catch { /* ignore */ }
     };
@@ -149,14 +158,16 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
   useEffect(() => {
     fetch(`${BASE_URL}/api/market/sectors`)
       .then(r => r.json())
-      .then((d: SectorResponse) => { if (Array.isArray(d.sectors)) setSectorData(d.sectors); })
+      .then((d: SectorResponse) => {
+        if (Array.isArray(d.sectors)) { setSectorData(d.sectors); localStorage.setItem("cachedSectorData", JSON.stringify(d.sectors)); }
+      })
       .catch(e => console.error("[market/sectors]", e));
 
     const es = new EventSource(`${BASE_URL}/api/market/sectors/stream`);
     es.onmessage = (event) => {
       try {
         const d: SectorResponse = JSON.parse(event.data);
-        if (Array.isArray(d.sectors)) setSectorData(d.sectors);
+        if (Array.isArray(d.sectors)) { setSectorData(d.sectors); localStorage.setItem("cachedSectorData", JSON.stringify(d.sectors)); }
       } catch { /* ignore */ }
     };
     return () => es.close();
