@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 const API = axios.create({
-  baseURL: 'https://api.primepiptrade.com:8000',
+  baseURL: 'https://api.primepiptrade.com',
   headers: {
     'Content-Type': 'application/json',
   },

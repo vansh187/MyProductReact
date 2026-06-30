@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { TrendingUp, TrendingDown, Activity, PieChart, BarChart2, BookmarkPlus, Shield, Zap, Globe, ChevronRight } from "lucide-react";
 
-const BASE_URL = "https://api.primepiptrade.com:8000";
+const BASE_URL = "https://api.primepiptrade.com";
 
 interface MarketIndex {
   name: string;
@@ -14,6 +14,34 @@ interface MarketIndex {
 interface MarketData {
   market_status: string;
   indices: MarketIndex[];
+}
+
+interface SectorItem {
+  sector: string;
+  change_pct: number;
+  change: number;
+  ltp: number;
+}
+
+interface SectorResponse {
+  market_status: string;
+  sectors: SectorItem[];
+  errors: string[];
+}
+
+interface TopMover {
+  symbol: string;
+  name: string;
+  sector: string;
+  ltp: number;
+  change_pct: number;
+  change: number;
+}
+
+interface TopMoversResponse {
+  market_status: string;
+  gainers: TopMover[];
+  losers: TopMover[];
 }
 
 function fmt(n: unknown): string {
@@ -32,32 +60,7 @@ const INDEX_CONFIG = [
   { key: "Bank Nifty", title: "NIFTY BANK", icon: BarChart2,  accent: "#f59e0b", bg: "rgba(245,158,11,0.08)",  border: "rgba(245,158,11,0.2)"  },
 ];
 
-const gainers = [
-  { name: "RELIANCE",  sector: "Energy",  price: "₹2,891.40", change: "+4.21%" },
-  { name: "TCS",       sector: "IT",      price: "₹3,456.75", change: "+3.87%" },
-  { name: "HDFC BANK", sector: "Banking", price: "₹1,678.20", change: "+2.95%" },
-  { name: "INFOSYS",   sector: "IT",      price: "₹1,543.60", change: "+2.43%" },
-  { name: "BAJAJ FIN", sector: "Finance", price: "₹7,234.80", change: "+2.18%" },
-];
 
-const losers = [
-  { name: "WIPRO",      sector: "IT",     price: "₹456.30",  change: "-3.12%" },
-  { name: "ONGC",       sector: "Energy", price: "₹234.50",  change: "-2.87%" },
-  { name: "NTPC",       sector: "Power",  price: "₹389.70",  change: "-2.41%" },
-  { name: "COAL INDIA", sector: "Mining", price: "₹456.20",  change: "-1.98%" },
-  { name: "BPCL",       sector: "Energy", price: "₹567.40",  change: "-1.73%" },
-];
-
-const sectors = [
-  { name: "IT",      change: "+1.42%", positive: true  },
-  { name: "Banking", change: "-0.21%", positive: false },
-  { name: "Energy",  change: "+0.87%", positive: true  },
-  { name: "FMCG",   change: "+0.34%", positive: true  },
-  { name: "Pharma",  change: "+0.92%", positive: true  },
-  { name: "Auto",    change: "-0.56%", positive: false },
-  { name: "Realty",  change: "+1.18%", positive: true  },
-  { name: "Metal",   change: "-1.03%", positive: false },
-];
 
 const funds = [
   { name: "Large Cap",  example: "HDFC Top 100",    returns: "12.4% p.a.", risk: "Moderate",  riskColor: "#f59e0b", color: "#3b82f6", bg: "rgba(59,130,246,0.07)",  border: "rgba(59,130,246,0.18)" },
@@ -119,6 +122,46 @@ function SectionHeading({ title, sub, T }: { title: string; sub?: string; T: typ
 
 export function HeroSection({ isDark }: { isDark: boolean }) {
   const T = isDark ? DARK : LIGHT;
+  const [sectorData, setSectorData] = useState<SectorItem[]>([]);
+  const [gainersData, setGainersData] = useState<TopMover[]>([]);
+  const [losersData, setLosersData] = useState<TopMover[]>([]);
+
+  useEffect(() => {
+    fetch(`${BASE_URL}/api/market/top-movers`)
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+      .then((d: TopMoversResponse) => {
+        if (Array.isArray(d.gainers)) setGainersData(d.gainers);
+        if (Array.isArray(d.losers))  setLosersData(d.losers);
+      })
+      .catch(e => console.error("[market/top-movers]", e));
+
+    const es = new EventSource(`${BASE_URL}/api/market/top-movers/stream`);
+    es.onmessage = (event) => {
+      try {
+        const d: TopMoversResponse = JSON.parse(event.data);
+        if (Array.isArray(d.gainers)) setGainersData(d.gainers);
+        if (Array.isArray(d.losers))  setLosersData(d.losers);
+      } catch { /* ignore */ }
+    };
+    return () => es.close();
+  }, []);
+
+  useEffect(() => {
+    fetch(`${BASE_URL}/api/market/sectors`)
+      .then(r => r.json())
+      .then((d: SectorResponse) => { if (Array.isArray(d.sectors)) setSectorData(d.sectors); })
+      .catch(e => console.error("[market/sectors]", e));
+
+    const es = new EventSource(`${BASE_URL}/api/market/sectors/stream`);
+    es.onmessage = (event) => {
+      try {
+        const d: SectorResponse = JSON.parse(event.data);
+        if (Array.isArray(d.sectors)) setSectorData(d.sectors);
+      } catch { /* ignore */ }
+    };
+    return () => es.close();
+  }, []);
+
   const [marketData, setMarketData] = useState<MarketData | null>(() => {
     try {
       const cached = localStorage.getItem("cachedMarketData");
@@ -151,7 +194,7 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
     return () => { clearInterval(id); controller.abort(); };
   }, []);
 
-  const marketOpen = marketData?.market_status === "open";
+  const marketOpen = marketData?.market_status?.toLowerCase() === "open";
   const statusColor = marketOpen ? "#4ade80" : "#f87171";
   const statusLabel = marketOpen ? "MARKETS LIVE" : "MARKET CLOSED";
 
@@ -271,16 +314,26 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
       <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "40px 24px 0" }}>
         <SectionHeading title="Sector Performance" sub="NSE Sectoral Indices" T={T} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: "10px" }}>
-          {sectors.map((s) => (
-            <div key={s.name} style={{
-              background: s.positive ? "rgba(34,197,94,0.08)" : "rgba(248,113,113,0.08)",
-              border: `1px solid ${s.positive ? "rgba(34,197,94,0.2)" : "rgba(248,113,113,0.2)"}`,
-              borderRadius: "12px", padding: "14px 10px", textAlign: "center",
-            }}>
-              <div style={{ fontSize: "12px", fontWeight: 600, color: T.textMuted, marginBottom: "6px" }}>{s.name}</div>
-              <div style={{ fontSize: "13px", fontWeight: 700, color: s.positive ? "#22c55e" : "#f87171" }}>{s.change}</div>
-            </div>
-          ))}
+          {sectorData.length === 0
+            ? Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${T.border}`, borderRadius: "12px", padding: "14px 10px", textAlign: "center" }}>
+                  <div style={{ fontSize: "12px", color: T.textDim }}>—</div>
+                </div>
+              ))
+            : sectorData.map((s) => {
+                const positive = s.change_pct >= 0;
+                return (
+                  <div key={s.sector} style={{
+                    background: positive ? "rgba(34,197,94,0.08)" : "rgba(248,113,113,0.08)",
+                    border: `1px solid ${positive ? "rgba(34,197,94,0.2)" : "rgba(248,113,113,0.2)"}`,
+                    borderRadius: "12px", padding: "14px 10px", textAlign: "center",
+                  }}>
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: T.textMuted, marginBottom: "6px" }}>{s.sector}</div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: positive ? "#22c55e" : "#f87171" }}>{fmtPct(s.change_pct)}</div>
+                  </div>
+                );
+              })
+          }
         </div>
       </div>
 
@@ -295,20 +348,22 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
               <TrendingUp style={{ width: "15px", height: "15px", color: "#22c55e" }} />
               <span style={{ fontSize: "13px", fontWeight: 700, color: "#22c55e" }}>Top Gainers</span>
             </div>
-            {gainers.map((g, i) => (
-              <div key={g.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: i < gainers.length - 1 ? `1px solid ${T.borderSubtle}` : "none" }}>
+            {gainersData.length === 0
+              ? <div style={{ padding: "20px 18px", fontSize: "12px", color: T.textDim, textAlign: "center" }}>Loading…</div>
+              : gainersData.map((g, i) => (
+              <div key={g.symbol} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: i < gainersData.length - 1 ? `1px solid ${T.borderSubtle}` : "none" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                   <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: "rgba(34,197,94,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#22c55e", flexShrink: 0 }}>
-                    {g.name.slice(0, 2)}
+                    {g.symbol.slice(0, 2)}
                   </div>
                   <div>
-                    <div style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>{g.name}</div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>{g.symbol}</div>
                     <div style={{ fontSize: "11px", color: T.textDim }}>{g.sector}</div>
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: "13px", fontWeight: 600, color: T.textBody }}>{g.price}</div>
-                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#22c55e" }}>{g.change}</div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: T.textBody }}>₹{fmt(g.ltp)}</div>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#22c55e" }}>{fmtPct(g.change_pct)}</div>
                 </div>
               </div>
             ))}
@@ -320,20 +375,22 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
               <TrendingDown style={{ width: "15px", height: "15px", color: "#f87171" }} />
               <span style={{ fontSize: "13px", fontWeight: 700, color: "#f87171" }}>Top Losers</span>
             </div>
-            {losers.map((l, i) => (
-              <div key={l.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: i < losers.length - 1 ? `1px solid ${T.borderSubtle}` : "none" }}>
+            {losersData.length === 0
+              ? <div style={{ padding: "20px 18px", fontSize: "12px", color: T.textDim, textAlign: "center" }}>Loading…</div>
+              : losersData.map((l, i) => (
+              <div key={l.symbol} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: i < losersData.length - 1 ? `1px solid ${T.borderSubtle}` : "none" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                   <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: "rgba(248,113,113,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#f87171", flexShrink: 0 }}>
-                    {l.name.slice(0, 2)}
+                    {l.symbol.slice(0, 2)}
                   </div>
                   <div>
-                    <div style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>{l.name}</div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>{l.symbol}</div>
                     <div style={{ fontSize: "11px", color: T.textDim }}>{l.sector}</div>
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: "13px", fontWeight: 600, color: T.textBody }}>{l.price}</div>
-                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#f87171" }}>{l.change}</div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: T.textBody }}>₹{fmt(l.ltp)}</div>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#f87171" }}>{fmtPct(l.change_pct)}</div>
                 </div>
               </div>
             ))}
