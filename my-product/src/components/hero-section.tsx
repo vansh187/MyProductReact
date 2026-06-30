@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { TrendingUp, TrendingDown, Activity, PieChart, BarChart2, BookmarkPlus, Shield, Zap, Globe, ChevronRight } from "lucide-react";
 
 const BASE_URL = "https://api.primepiptrade.com";
@@ -122,6 +123,7 @@ function SectionHeading({ title, sub, T }: { title: string; sub?: string; T: typ
 
 export function HeroSection({ isDark }: { isDark: boolean }) {
   const T = isDark ? DARK : LIGHT;
+  const navigate = useNavigate();
   const [sectorData, setSectorData] = useState<SectorItem[]>(() => {
     try { const c = localStorage.getItem("cachedSectorData"); if (c) return JSON.parse(c) as SectorItem[]; } catch { /* ignore */ }
     return [];
@@ -445,8 +447,10 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px" }}>
           {quickActions.map((action) => {
             const Icon = action.icon;
+            const handleClick = () => { if (action.title === "Explore Stocks") navigate("/explore/fno"); };
             return (
               <div key={action.title}
+                onClick={handleClick}
                 style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: "16px", padding: "24px", cursor: "pointer", transition: "border-color 0.2s, transform 0.2s" }}
                 onMouseEnter={e => {
                   (e.currentTarget as HTMLDivElement).style.borderColor = action.color + "60";
