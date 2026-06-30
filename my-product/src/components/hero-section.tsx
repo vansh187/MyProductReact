@@ -29,6 +29,21 @@ interface SectorResponse {
   errors: string[];
 }
 
+interface TopMover {
+  symbol: string;
+  name: string;
+  sector: string;
+  ltp: number;
+  change_pct: number;
+  change: number;
+}
+
+interface TopMoversResponse {
+  market_status: string;
+  gainers: TopMover[];
+  losers: TopMover[];
+}
+
 function fmt(n: unknown): string {
   if (n == null || typeof n !== "number" || isNaN(n)) return "—";
   return n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -45,21 +60,6 @@ const INDEX_CONFIG = [
   { key: "Bank Nifty", title: "NIFTY BANK", icon: BarChart2,  accent: "#f59e0b", bg: "rgba(245,158,11,0.08)",  border: "rgba(245,158,11,0.2)"  },
 ];
 
-const gainers = [
-  { name: "RELIANCE",  sector: "Energy",  price: "₹2,891.40", change: "+4.21%" },
-  { name: "TCS",       sector: "IT",      price: "₹3,456.75", change: "+3.87%" },
-  { name: "HDFC BANK", sector: "Banking", price: "₹1,678.20", change: "+2.95%" },
-  { name: "INFOSYS",   sector: "IT",      price: "₹1,543.60", change: "+2.43%" },
-  { name: "BAJAJ FIN", sector: "Finance", price: "₹7,234.80", change: "+2.18%" },
-];
-
-const losers = [
-  { name: "WIPRO",      sector: "IT",     price: "₹456.30",  change: "-3.12%" },
-  { name: "ONGC",       sector: "Energy", price: "₹234.50",  change: "-2.87%" },
-  { name: "NTPC",       sector: "Power",  price: "₹389.70",  change: "-2.41%" },
-  { name: "COAL INDIA", sector: "Mining", price: "₹456.20",  change: "-1.98%" },
-  { name: "BPCL",       sector: "Energy", price: "₹567.40",  change: "-1.73%" },
-];
 
 
 const funds = [
@@ -123,6 +123,28 @@ function SectionHeading({ title, sub, T }: { title: string; sub?: string; T: typ
 export function HeroSection({ isDark }: { isDark: boolean }) {
   const T = isDark ? DARK : LIGHT;
   const [sectorData, setSectorData] = useState<SectorItem[]>([]);
+  const [gainersData, setGainersData] = useState<TopMover[]>([]);
+  const [losersData, setLosersData] = useState<TopMover[]>([]);
+
+  useEffect(() => {
+    fetch(`${BASE_URL}/api/market/top-movers`)
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+      .then((d: TopMoversResponse) => {
+        if (Array.isArray(d.gainers)) setGainersData(d.gainers);
+        if (Array.isArray(d.losers))  setLosersData(d.losers);
+      })
+      .catch(e => console.error("[market/top-movers]", e));
+
+    const es = new EventSource(`${BASE_URL}/api/market/top-movers/stream`);
+    es.onmessage = (event) => {
+      try {
+        const d: TopMoversResponse = JSON.parse(event.data);
+        if (Array.isArray(d.gainers)) setGainersData(d.gainers);
+        if (Array.isArray(d.losers))  setLosersData(d.losers);
+      } catch { /* ignore */ }
+    };
+    return () => es.close();
+  }, []);
 
   useEffect(() => {
     fetch(`${BASE_URL}/api/market/sectors`)
@@ -326,20 +348,22 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
               <TrendingUp style={{ width: "15px", height: "15px", color: "#22c55e" }} />
               <span style={{ fontSize: "13px", fontWeight: 700, color: "#22c55e" }}>Top Gainers</span>
             </div>
-            {gainers.map((g, i) => (
-              <div key={g.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: i < gainers.length - 1 ? `1px solid ${T.borderSubtle}` : "none" }}>
+            {gainersData.length === 0
+              ? <div style={{ padding: "20px 18px", fontSize: "12px", color: T.textDim, textAlign: "center" }}>Loading…</div>
+              : gainersData.map((g, i) => (
+              <div key={g.symbol} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: i < gainersData.length - 1 ? `1px solid ${T.borderSubtle}` : "none" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                   <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: "rgba(34,197,94,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#22c55e", flexShrink: 0 }}>
-                    {g.name.slice(0, 2)}
+                    {g.symbol.slice(0, 2)}
                   </div>
                   <div>
-                    <div style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>{g.name}</div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>{g.symbol}</div>
                     <div style={{ fontSize: "11px", color: T.textDim }}>{g.sector}</div>
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: "13px", fontWeight: 600, color: T.textBody }}>{g.price}</div>
-                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#22c55e" }}>{g.change}</div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: T.textBody }}>₹{fmt(g.ltp)}</div>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#22c55e" }}>{fmtPct(g.change_pct)}</div>
                 </div>
               </div>
             ))}
@@ -351,20 +375,22 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
               <TrendingDown style={{ width: "15px", height: "15px", color: "#f87171" }} />
               <span style={{ fontSize: "13px", fontWeight: 700, color: "#f87171" }}>Top Losers</span>
             </div>
-            {losers.map((l, i) => (
-              <div key={l.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: i < losers.length - 1 ? `1px solid ${T.borderSubtle}` : "none" }}>
+            {losersData.length === 0
+              ? <div style={{ padding: "20px 18px", fontSize: "12px", color: T.textDim, textAlign: "center" }}>Loading…</div>
+              : losersData.map((l, i) => (
+              <div key={l.symbol} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: i < losersData.length - 1 ? `1px solid ${T.borderSubtle}` : "none" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                   <div style={{ width: "34px", height: "34px", borderRadius: "10px", background: "rgba(248,113,113,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#f87171", flexShrink: 0 }}>
-                    {l.name.slice(0, 2)}
+                    {l.symbol.slice(0, 2)}
                   </div>
                   <div>
-                    <div style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>{l.name}</div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>{l.symbol}</div>
                     <div style={{ fontSize: "11px", color: T.textDim }}>{l.sector}</div>
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: "13px", fontWeight: 600, color: T.textBody }}>{l.price}</div>
-                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#f87171" }}>{l.change}</div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: T.textBody }}>₹{fmt(l.ltp)}</div>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#f87171" }}>{fmtPct(l.change_pct)}</div>
                 </div>
               </div>
             ))}
