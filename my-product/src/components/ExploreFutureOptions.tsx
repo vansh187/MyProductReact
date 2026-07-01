@@ -1,8 +1,49 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "./header";
 import { Footer } from "./footer";
-import { BarChart2, TrendingUp, Activity, Layers, Terminal, List } from "lucide-react";
+import { BarChart2, TrendingUp, Activity, Layers, Terminal, List, Link2 } from "lucide-react";
+
+const BASE_URL = "https://api.primepiptrade.com";
+
+interface MarketIndex {
+  name: string;
+  stock_code: string;
+  value: number;
+  change: number;
+  change_pct: number;
+}
+
+interface MarketData {
+  market_status: string;
+  indices: MarketIndex[];
+}
+
+function fmt(n: unknown): string {
+  if (n == null || typeof n !== "number" || isNaN(n)) return "—";
+  return n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+}
+
+function fmtChange(n: unknown): string {
+  if (n == null || typeof n !== "number" || isNaN(n)) return "—";
+  return (n >= 0 ? "+" : "") + n.toFixed(2);
+}
+
+function fmtPct(n: unknown): string {
+  if (n == null || typeof n !== "number" || isNaN(n)) return "—";
+  return (n >= 0 ? "+" : "") + n.toFixed(2) + "%";
+}
+
+function normalizeName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function findApiIndex(apiIndices: MarketIndex[], variants: string[]): MarketIndex | undefined {
+  return apiIndices.find(i => {
+    const n = normalizeName(i.name || "");
+    return variants.some(v => { const nv = normalizeName(v); return n === nv || n.includes(nv); });
+  });
+}
 
 /* ── Theme ─────────────────────────────────────────────── */
 const DARK = {
@@ -41,25 +82,109 @@ const LIGHT = {
 
 /* ── Index Options ──────────────────────────────────────── */
 const INDICES = [
-  { key: "nifty50",     label: "Nifty 50",     icon: TrendingUp, accent: "#3b82f6", symbol: "NIFTY"     },
-  { key: "sensex",      label: "Sensex",        icon: Activity,   accent: "#10b981", symbol: "SENSEX"    },
-  { key: "banknifty",   label: "Bank Nifty",    icon: BarChart2,  accent: "#f59e0b", symbol: "BANKNIFTY" },
-  { key: "midcpnifty",  label: "MidcpNifty",    icon: Layers,     accent: "#8b5cf6", symbol: "MIDCPNIFTY"},
-  { key: "finnifty",    label: "FinNifty",      icon: List,       accent: "#ec4899", symbol: "FINNIFTY"  },
+  { key: "nifty50",     label: "NIFTY",      icon: TrendingUp, accent: "#3b82f6", symbol: "NIFTY",      matchNames: ["Nifty 50", "Nifty"] },
+  { key: "sensex",      label: "SENSEX",     icon: Activity,   accent: "#10b981", symbol: "SENSEX",     matchNames: ["Sensex"] },
+  { key: "banknifty",   label: "BANKNIFTY",  icon: BarChart2,  accent: "#f59e0b", symbol: "BANKNIFTY",  matchNames: ["Bank Nifty", "Nifty Bank"] },
+  { key: "midcpnifty",  label: "MIDCPNIFTY", icon: Layers,     accent: "#8b5cf6", symbol: "MIDCPNIFTY", matchNames: ["Nifty Midcap Select", "Midcap Nifty", "Midcp Nifty"] },
+  { key: "finnifty",    label: "FINNIFTY",   icon: List,       accent: "#ec4899", symbol: "FINNIFTY",   matchNames: ["Fin Nifty", "Nifty Financial Services"] },
 ];
 
-const SECTION_TABS = ["Stocks", "Mutual Funds", "F&O"];
+const SECTION_TABS = ["Explore", "Positions", "Orders"];
+
+/* ── Top Traded ──────────────────────────────────────────── */
+const ASSET_TABS = ["Equity", "Commodities"];
+
+const BAR_PATTERNS: Record<string, number[]> = {
+  nifty50:    [6, 5, 7, 4, 6, 8, 9, 11, 10, 13],
+  sensex:     [5, 6, 5, 7, 8, 7, 9, 10, 9, 12],
+  banknifty:  [11, 9, 10, 8, 9, 7, 6, 5, 6, 4],
+  midcpnifty: [10, 11, 9, 8, 7, 8, 6, 5, 6, 4],
+  finnifty:   [6, 7, 6, 8, 7, 9, 8, 10, 11, 12],
+  indiavix:   [9, 10, 8, 9, 11, 10, 8, 9, 7, 8],
+};
+
+const EXTRA_TOP_TRADED = [
+  { key: "indiavix", label: "INDIA VIX", matchNames: ["India VIX"] },
+];
+
+function CandleSparkline({ bars, positive }: { bars: number[]; positive: boolean }) {
+  const color = positive ? "#22c55e" : "#ef4444";
+  const max = Math.max(...bars);
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: "3px", height: "32px" }}>
+      {bars.map((h, i) => (
+        <div
+          key={i}
+          style={{
+            width: "4px",
+            height: `${(h / max) * 100}%`,
+            minHeight: "3px",
+            borderRadius: "1px",
+            background: color,
+            opacity: 0.45 + (i / bars.length) * 0.55,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 export default function ExploreFutureOptions() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [isDark, setIsDark] = useState(() => localStorage.getItem("theme") !== "light");
-  const [activeSection, setActiveSection] = useState("F&O");
+  const [activeSection, setActiveSection] = useState<string>((location.state as any)?.tab ?? "Explore");
   const [hoveredIndex, setHoveredIndex] = useState<string | null>(null);
+  const [activeAsset, setActiveAsset] = useState<string>("Equity");
   const T = isDark ? DARK : LIGHT;
+
+  const [marketData, setMarketData] = useState<MarketData | null>(() => {
+    try {
+      const cached = localStorage.getItem("cachedMarketData");
+      if (cached) return JSON.parse(cached) as MarketData;
+    } catch { /* ignore */ }
+    return null;
+  });
 
   useEffect(() => {
     if (!localStorage.getItem("authToken")) navigate("/", { replace: true });
   }, []);
+
+  useEffect(() => {
+    let controller = new AbortController();
+
+    const fetchData = () => {
+      controller.abort();
+      controller = new AbortController();
+      fetch(`${BASE_URL}/api/market/indices`, { signal: controller.signal })
+        .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+        .then((d: unknown) => {
+          if (d && typeof d === "object" && "indices" in d) {
+            const data = d as MarketData;
+            data.indices = Array.isArray(data.indices) ? data.indices : [];
+            setMarketData(data);
+            localStorage.setItem("cachedMarketData", JSON.stringify(data));
+          }
+        })
+        .catch(e => { if (e?.name !== "AbortError") console.error("[market/indices]", e); });
+    };
+
+    fetchData();
+    const id = setInterval(fetchData, 10_000);
+    return () => { clearInterval(id); controller.abort(); };
+  }, []);
+
+  const apiIndices = Array.isArray(marketData?.indices) ? marketData!.indices : [];
+
+  const topTraded = [...INDICES, ...EXTRA_TOP_TRADED].map(idx => {
+    const live = findApiIndex(apiIndices, idx.matchNames);
+    return {
+      key: idx.key,
+      name: idx.label,
+      live,
+      bars: BAR_PATTERNS[idx.key],
+    };
+  });
 
   useEffect(() => {
     document.body.style.overflow = "auto";
@@ -149,17 +274,17 @@ export default function ExploreFutureOptions() {
               return (
                 <div
                   key={idx.key}
-                  style={{ position: "relative" }}
+                  style={{ position: "relative", flex: 1 }}
                   onMouseEnter={() => setHoveredIndex(idx.key)}
                   onMouseLeave={() => setHoveredIndex(null)}
                 >
                   {/* Index tab pill */}
                   <div style={{
-                    display: "flex", alignItems: "center", gap: "7px",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: "7px",
                     padding: "8px 16px", borderRadius: "10px",
                     background: hovered ? T.tabHover : T.tabBg,
                     border: `1px solid ${hovered ? idx.accent + "55" : T.border}`,
-                    cursor: "pointer", transition: "all 0.18s", userSelect: "none",
+                    cursor: "pointer", transition: "all 0.18s", userSelect: "none", width: "100%",
                   }}>
                     <Icon style={{ width: "14px", height: "14px", color: idx.accent }} />
                     <span style={{ fontSize: "13px", fontWeight: 600, color: hovered ? idx.accent : T.textBody }}>
@@ -180,17 +305,6 @@ export default function ExploreFutureOptions() {
                         : "0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)",
                       padding: "8px", minWidth: "200px", zIndex: 100,
                     }}>
-                      {/* Card header */}
-                      <div style={{ padding: "8px 12px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                        <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: `${idx.accent}20`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <Icon style={{ width: "14px", height: "14px", color: idx.accent }} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>{idx.label}</div>
-                          <div style={{ fontSize: "11px", color: T.textDim }}>{idx.symbol}</div>
-                        </div>
-                      </div>
-
                       {/* Option Chain */}
                       <button
                         style={{
@@ -236,21 +350,117 @@ export default function ExploreFutureOptions() {
           </div>
         </div>
 
-        {/* ── Main content placeholder ── */}
-        <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "40px 24px" }}>
-          <div style={{
-            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-            minHeight: "400px", background: T.card, border: `1px solid ${T.border}`,
-            borderRadius: "20px", gap: "16px",
-          }}>
-            <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: "rgba(139,92,246,0.12)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Terminal style={{ width: "28px", height: "28px", color: "#8b5cf6" }} />
+        {/* ── Top traded ── */}
+        <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+              <span style={{ fontSize: "17px", fontWeight: 700, color: T.text }}>Top traded</span>
+              <div style={{ display: "flex", gap: "6px" }}>
+                {ASSET_TABS.map(tab => {
+                  const active = activeAsset === tab;
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveAsset(tab)}
+                      style={{
+                        padding: "6px 14px", borderRadius: "20px", fontSize: "13px", fontWeight: 600,
+                        color: active ? "#fff" : T.textMuted,
+                        background: active ? T.activeBorder : T.tabBg,
+                        border: `1px solid ${active ? T.activeBorder : T.border}`,
+                        cursor: "pointer", transition: "all 0.18s",
+                      }}
+                    >
+                      {tab}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "18px", fontWeight: 700, color: T.text, marginBottom: "8px" }}>F&O Explorer</div>
-              <div style={{ fontSize: "14px", color: T.textMuted }}>Hover over an index above to view Option Chain or open Terminal</div>
-            </div>
+            <span style={{ fontSize: "13px", fontWeight: 600, color: T.activeBorder, cursor: "pointer" }}>
+              See more
+            </span>
           </div>
+
+          {activeAsset === "Equity" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+              {topTraded.map((item) => {
+                const loading = !item.live;
+                const chg = item.live?.change ?? 0;
+                const positive = chg >= 0;
+                const color = positive ? "#22c55e" : "#ef4444";
+                return (
+                  <div
+                    key={item.key}
+                    onClick={() => {
+                      if (item.live) {
+                        navigate("/terminal/fno", {
+                          state: {
+                            indexData: {
+                              name: item.name,
+                              symbol: item.key.toUpperCase(),
+                              value: item.live.value,
+                              change: item.live.change,
+                              change_pct: item.live.change_pct,
+                            },
+                          },
+                        });
+                      }
+                    }}
+                    style={{
+                      position: "relative", background: T.card, border: `1px solid ${T.border}`,
+                      borderRadius: "16px", padding: "18px", display: "flex", flexDirection: "column", gap: "14px",
+                      transition: "border-color 0.18s, transform 0.18s", cursor: loading ? "default" : "pointer",
+                    }}
+                    onMouseEnter={e => {
+                      (e.currentTarget as HTMLDivElement).style.borderColor = T.borderMid;
+                      if (!loading) (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)";
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLDivElement).style.borderColor = T.border;
+                      (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)";
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: "14px", fontWeight: 700, color: T.text }}>{item.name}</span>
+                      <CandleSparkline bars={item.bars} positive={positive} />
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                      <div>
+                        <div style={{ fontSize: "19px", fontWeight: 700, color: T.text }}>
+                          {loading ? "—" : `₹${fmt(item.live!.value)}`}
+                        </div>
+                        <div style={{ fontSize: "12px", fontWeight: 600, color: loading ? T.textDim : color }}>
+                          {loading ? "Loading…" : `${fmtChange(chg)} (${fmtPct(item.live!.change_pct)})`}
+                        </div>
+                      </div>
+                      <button
+                        style={{
+                          width: "30px", height: "30px", borderRadius: "50%",
+                          background: T.tabBg, border: `1px solid ${T.border}`,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          cursor: "pointer", flexShrink: 0,
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = T.tabHover; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = T.tabBg; }}
+                      >
+                        <Link2 style={{ width: "14px", height: "14px", color: T.textMuted }} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              minHeight: "160px", background: T.card, border: `1px solid ${T.border}`,
+              borderRadius: "16px", fontSize: "13px", color: T.textMuted,
+            }}>
+              Commodities F&O data coming soon
+            </div>
+          )}
         </div>
 
       </main>

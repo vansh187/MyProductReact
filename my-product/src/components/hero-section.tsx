@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { TrendingUp, TrendingDown, Activity, PieChart, BarChart2, BookmarkPlus, Shield, Zap, Globe, ChevronRight } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, PieChart, BarChart2, BookmarkPlus, Shield, Zap, Globe, ChevronRight, Layers } from "lucide-react";
 
 const BASE_URL = "https://api.primepiptrade.com";
 
@@ -71,10 +71,11 @@ const funds = [
 ];
 
 const quickActions = [
-  { icon: BarChart2,    title: "Explore Stocks", desc: "Browse & analyze stock markets in real time",  color: "#3b82f6" },
-  { icon: TrendingUp,   title: "View Holdings",  desc: "Check your current investment portfolio",       color: "#10b981" },
-  { icon: PieChart,     title: "Start SIP",      desc: "Begin systematic investment plans easily",      color: "#8b5cf6" },
-  { icon: BookmarkPlus, title: "Watchlist",       desc: "Monitor and track your favourite stocks",      color: "#f59e0b" },
+  { icon: BarChart2,    title: "Explore Stocks", desc: "Browse & analyze stock markets in real time",  color: "#3b82f6", route: null        },
+  { icon: Layers,       title: "Explore F&O",    desc: "Trade Futures & Options on indices and stocks", color: "#8b5cf6", route: "/explore/fno" },
+  { icon: TrendingUp,   title: "View Holdings",  desc: "Check your current investment portfolio",       color: "#10b981", route: null        },
+  { icon: PieChart,     title: "Start SIP",      desc: "Begin systematic investment plans easily",      color: "#ec4899", route: null        },
+  { icon: BookmarkPlus, title: "Watchlist",       desc: "Monitor and track your favourite stocks",      color: "#f59e0b", route: null        },
 ];
 
 const features = [
@@ -444,10 +445,10 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
       {/* ── QUICK ACTIONS ── */}
       <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "40px 24px 0" }}>
         <SectionHeading title="Quick Actions" sub="Get started" T={T} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "16px" }}>
           {quickActions.map((action) => {
             const Icon = action.icon;
-            const handleClick = () => { if (action.title === "Explore Stocks") navigate("/explore/fno"); };
+            const handleClick = () => { if (action.route) navigate(action.route, { state: { tab: "Explore" } }); };
             return (
               <div key={action.title}
                 onClick={handleClick}
