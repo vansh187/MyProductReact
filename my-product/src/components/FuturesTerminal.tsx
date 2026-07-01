@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Header } from "./header";
 import { Footer } from "./footer";
-import { ChevronLeft, TrendingUp, TrendingDown, Activity, Eye, Zap, PieChart, Bookmark, Settings, MoreVertical } from "lucide-react";
+import { ChevronLeft, TrendingUp, Activity, Eye, Zap, PieChart, Bookmark, Settings, MoreVertical } from "lucide-react";
 
 const DARK = {
   bg:           "#0d1117",
