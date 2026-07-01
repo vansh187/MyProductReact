@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Header } from "./header";
 import { Footer } from "./footer";
@@ -104,6 +104,109 @@ const INDEX_MATCH_VARIANTS: Record<string, string[]> = {
 // Timeframes the historical candle API can serve; anything finer (5s/15s/30s)
 // has no broker-side equivalent and always uses live tick aggregation.
 const HISTORICAL_TIMEFRAMES = new Set(["1m", "5m", "15m", "1h", "1d"]);
+
+const UNDERLYING_DISPLAY: Record<string, string> = {
+  nifty: "NIFTY", nifty50: "NIFTY",
+  banknifty: "BANKNIFTY",
+  finnifty: "FINNIFTY",
+  midcpnifty: "MIDCPNIFTY",
+  sensex: "SENSEX",
+  indiavix: "INDIA VIX",
+};
+
+// NSE lot sizes as of latest circular we have on file — these are revised
+// periodically by the exchange, so verify against the current NSE circular
+// before treating this as authoritative for real trading.
+const LOT_SIZE_MAP: Record<string, number> = {
+  nifty: 75, nifty50: 75,
+  banknifty: 35,
+  finnifty: 65,
+  midcpnifty: 140,
+};
+const DEFAULT_LOT_SIZE = 50;
+
+const STRIKE_STEP_MAP: Record<string, number> = {
+  nifty: 50, nifty50: 50,
+  banknifty: 100,
+  finnifty: 50,
+  midcpnifty: 25,
+  sensex: 100,
+};
+const DEFAULT_STRIKE_STEP = 50;
+
+const CURRENT_EXPIRY = "07 Jul 2026";
+
+// "07 Jul 2026" -> "07JUL26", matching NSE-style contract symbol suffixes.
+function expiryToSymbolCode(expiry: string): string {
+  const [day, mon, year] = expiry.split(" ");
+  return `${day}${mon.toUpperCase()}${year.slice(2)}`;
+}
+
+function buildOptionSymbol(underlying: string, expiry: string, strike: number, optionType: "CE" | "PE"): string {
+  return `${underlying}${expiryToSymbolCode(expiry)}${strike}${optionType}`;
+}
+
+// The order API returns either a plain string `detail`, or (on pydantic
+// validation failures) an array of { loc, msg, ... } objects. Normalize both
+// into one human-readable line.
+function extractErrorMessage(body: any, fallback: string): string {
+  const detail = body?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d: any) => {
+        const field = Array.isArray(d?.loc) ? d.loc.slice(-1)[0] : d?.loc;
+        return field ? `${field}: ${d?.msg ?? "invalid value"}` : d?.msg ?? "invalid value";
+      })
+      .join("; ");
+  }
+  return fallback;
+}
+
+interface OptionQuote {
+  strike: number;
+  ce: { premium: number; iv: number; oi: number };
+  pe: { premium: number; iv: number; oi: number };
+}
+
+// Deterministic pseudo-random in [0,1), seeded by an integer — used so option
+// chain premiums stay stable across re-renders instead of jumping every time
+// React repaints (which plain Math.random() in JSX was doing before).
+function seededRandom(seed: number): number {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+// Builds a synthetic option chain centered on the live spot price. Premium =
+// intrinsic value + a stable pseudo-random time-value component. This is a
+// simulator, not a real pricing model (no Black-Scholes/greeks) — good enough
+// to exercise the order-ticket flow before the backend order book exists.
+function buildOptionChain(spot: number, strikeStep: number, count = 9): OptionQuote[] {
+  if (!spot || isNaN(spot)) return [];
+  const center = Math.round(spot / strikeStep) * strikeStep;
+  const half = Math.floor(count / 2);
+  const strikes: number[] = [];
+  for (let i = -half; i <= half; i++) strikes.push(center + i * strikeStep);
+
+  return strikes.map(strike => {
+    const callIntrinsic = Math.max(spot - strike, 0);
+    const putIntrinsic = Math.max(strike - spot, 0);
+    const timeValue = 20 + seededRandom(strike) * 60;
+    return {
+      strike,
+      ce: {
+        premium: Math.max(callIntrinsic + timeValue, 0.5),
+        iv: 15 + seededRandom(strike + 1) * 20,
+        oi: Math.floor(10000 + seededRandom(strike + 2) * 50000),
+      },
+      pe: {
+        premium: Math.max(putIntrinsic + timeValue, 0.5),
+        iv: 15 + seededRandom(strike + 3) * 20,
+        oi: Math.floor(10000 + seededRandom(strike + 4) * 50000),
+      },
+    };
+  });
+}
 
 function normalizeCandle(raw: any): Candle | null {
   const rawTime = raw?.timestamp ?? raw?.time ?? raw?.t ?? raw?.datetime;
@@ -285,6 +388,110 @@ export default function FuturesTerminal() {
   const symbolKey = normalizeName(indexData.symbol || "");
   const candleSlug = CANDLE_SLUG_MAP[symbolKey];
   const cacheKey = `cachedCandles_${symbolKey || "unknown"}_${timeframe}`;
+  const underlyingDisplay = UNDERLYING_DISPLAY[symbolKey] ?? indexData.symbol;
+  const lotSize = LOT_SIZE_MAP[symbolKey] ?? DEFAULT_LOT_SIZE;
+  const strikeStep = STRIKE_STEP_MAP[symbolKey] ?? DEFAULT_STRIKE_STEP;
+
+  const [activeOptionType, setActiveOptionType] = useState<"CE" | "PE">("CE");
+
+  type OrderSide = "BUY" | "SELL";
+  interface OrderTicket {
+    strike: number;
+    optionType: "CE" | "PE";
+    side: OrderSide;
+  }
+  const [orderTicket, setOrderTicket] = useState<OrderTicket | null>(null);
+  const [orderQtyLots, setOrderQtyLots] = useState(1);
+  const [orderType, setOrderType] = useState<"MARKET" | "LIMIT">("LIMIT");
+  const [orderProductType, setOrderProductType] = useState<"MIS" | "NRML">("MIS");
+  const [orderPrice, setOrderPrice] = useState(0);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [orderResult, setOrderResult] = useState<{
+    orderId: number;
+    status: string;
+    message: string;
+    matchedQty?: number;
+    remainingQty?: number;
+    tradeId?: number;
+  } | null>(null);
+
+  const optionChain = useMemo(
+    () => buildOptionChain(indexData.value, strikeStep),
+    [indexData.value, strikeStep]
+  );
+
+  function openOrderTicket(strike: number, optionType: "CE" | "PE", premium: number) {
+    setOrderTicket({ strike, optionType, side: "BUY" });
+    setOrderQtyLots(1);
+    setOrderType("LIMIT");
+    setOrderProductType("MIS");
+    setOrderPrice(Math.round(premium * 100) / 100);
+    setOrderError(null);
+    setOrderResult(null);
+  }
+
+  function closeOrderTicket() {
+    setOrderTicket(null);
+    setOrderError(null);
+    setOrderResult(null);
+    setIsSubmittingOrder(false);
+  }
+
+  async function placeOrder() {
+    if (!orderTicket) return;
+    if (orderType === "LIMIT" && (!orderPrice || orderPrice <= 0)) {
+      setOrderError("Enter a valid limit price.");
+      return;
+    }
+
+    const symbol = buildOptionSymbol(underlyingDisplay, CURRENT_EXPIRY, orderTicket.strike, orderTicket.optionType);
+    const payload: Record<string, unknown> = {
+      symbol,
+      exchange: "NFO",
+      side: orderTicket.side,
+      quantity: orderQtyLots * lotSize,
+      order_type: orderType,
+      product_type: orderProductType,
+      validity: "DAY",
+      client_order_id: `FNO-${Date.now()}`,
+    };
+    if (orderType === "LIMIT") payload.price = orderPrice;
+
+    setOrderError(null);
+    setIsSubmittingOrder(true);
+    try {
+      const res = await fetch(`${BASE_URL}/orders`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json();
+
+      if (!res.ok || !body?.success) {
+        setOrderError(extractErrorMessage(body, "Order could not be placed. Please try again."));
+        return;
+      }
+
+      const exec = body.execution ?? {};
+      setOrderResult({
+        orderId: body.order_id,
+        status: exec.status ?? "PENDING",
+        message: exec.message ?? "Order submitted",
+        matchedQty: exec.matched_quantity,
+        remainingQty: exec.remaining_quantity,
+        tradeId: exec.trade_id,
+      });
+    } catch (e) {
+      console.error("[FuturesTerminal] order placement failed:", e);
+      setOrderError("Network error — order was not placed. Please check your connection and try again.");
+    } finally {
+      setIsSubmittingOrder(false);
+    }
+  }
 
   const [candles, setCandles] = useState<Candle[]>(() => {
     try {
@@ -303,15 +510,15 @@ export default function FuturesTerminal() {
   }, []);
 
   useEffect(() => {
-    document.body.style.overflow = "hidden";
-    document.body.style.height = "100vh";
-    document.documentElement.style.overflow = "hidden";
-    document.documentElement.style.height = "100vh";
+    document.body.style.overflow = "auto";
+    document.body.style.height = "auto";
+    document.documentElement.style.overflow = "auto";
+    document.documentElement.style.height = "auto";
     return () => {
-      document.body.style.overflow = "auto";
-      document.body.style.height = "auto";
-      document.documentElement.style.overflow = "auto";
-      document.documentElement.style.height = "auto";
+      document.body.style.overflow = "";
+      document.body.style.height = "";
+      document.documentElement.style.overflow = "";
+      document.documentElement.style.height = "";
     };
   }, []);
 
@@ -452,7 +659,7 @@ export default function FuturesTerminal() {
         onToggleTheme={() => setIsDark(d => { const n = !d; localStorage.setItem("theme", n ? "dark" : "light"); return n; })}
       />
 
-      <main style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      <main style={{ flex: 1, display: "flex" }}>
 
         {/* ── Left Sidebar: Tools ── */}
         <div style={{
@@ -491,7 +698,7 @@ export default function FuturesTerminal() {
         </div>
 
         {/* ── Main Content Area ── */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 
           {/* ── Top Header: Symbol Info ── */}
           <div style={{
@@ -535,13 +742,13 @@ export default function FuturesTerminal() {
           </div>
 
           {/* ── Chart Area ── */}
-          <div style={{ flex: 1, display: "flex", gap: "12px", overflow: "hidden", padding: "16px 12px 12px 12px" }}>
+          <div style={{ flex: 1, display: "flex", gap: "12px", padding: "16px 12px 12px 12px", minHeight: "480px" }}>
 
             {/* Chart */}
             <div style={{
               flex: 1, background: T.cardSolid, border: `1px solid ${T.borderMid}`,
-              borderRadius: "14px", padding: "20px 16px", overflow: "hidden",
-              display: "flex", flexDirection: "column",
+              borderRadius: "14px", padding: "20px 16px",
+              display: "flex", flexDirection: "column", minWidth: 0,
             }}>
               <div style={{ fontSize: "11px", color: T.textMuted, marginBottom: "12px", display: "flex", gap: "8px" }}>
                 {["20s", "30s", "1m", "5m", "15m", "1h", "1d"].map(tf => (
@@ -573,56 +780,322 @@ export default function FuturesTerminal() {
               display: "flex", flexDirection: "column", gap: "12px",
             }}>
               <div style={{ fontSize: "12px", fontWeight: 700, color: T.text, paddingBottom: "8px", borderBottom: `1px solid ${T.border}` }}>
-                Options Chain (Expiry: 07 Jul)
+                Options Chain (Expiry: {CURRENT_EXPIRY})
               </div>
 
               {/* Call/Put Tabs */}
               <div style={{ display: "flex", gap: "6px" }}>
-                <button style={{
-                  flex: 1, padding: "6px", fontSize: "11px", fontWeight: 600,
-                  background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)",
-                  borderRadius: "6px", color: "#22c55e", cursor: "pointer",
-                }}>
+                <button
+                  onClick={() => setActiveOptionType("CE")}
+                  style={{
+                    flex: 1, padding: "6px", fontSize: "11px", fontWeight: 600,
+                    background: activeOptionType === "CE" ? "rgba(34,197,94,0.1)" : T.card,
+                    border: `1px solid ${activeOptionType === "CE" ? "rgba(34,197,94,0.3)" : T.border}`,
+                    borderRadius: "6px", color: activeOptionType === "CE" ? "#22c55e" : T.textMuted, cursor: "pointer",
+                  }}
+                >
                   Call
                 </button>
-                <button style={{
-                  flex: 1, padding: "6px", fontSize: "11px", fontWeight: 600,
-                  background: T.border, border: `1px solid ${T.border}`,
-                  borderRadius: "6px", color: T.textMuted, cursor: "pointer",
-                }}>
+                <button
+                  onClick={() => setActiveOptionType("PE")}
+                  style={{
+                    flex: 1, padding: "6px", fontSize: "11px", fontWeight: 600,
+                    background: activeOptionType === "PE" ? "rgba(239,68,68,0.1)" : T.card,
+                    border: `1px solid ${activeOptionType === "PE" ? "rgba(239,68,68,0.3)" : T.border}`,
+                    borderRadius: "6px", color: activeOptionType === "PE" ? "#ef4444" : T.textMuted, cursor: "pointer",
+                  }}
+                >
                   Put
                 </button>
               </div>
 
-              {/* Call Options */}
+              {/* Strike list for the active option type */}
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {[23800, 23850, 23900, 23950, 24000, 24050, 24100].map(strike => (
-                  <div
-                    key={strike}
-                    style={{
-                      background: T.cardSolid, border: `1px solid ${T.borderMid}`,
-                      borderRadius: "8px", padding: "8px 10px", cursor: "pointer",
-                      transition: "border-color 0.18s",
-                    }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(59,130,246,0.4)"; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = T.borderMid; }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
-                      <span style={{ fontSize: "10px", color: T.textMuted }}>Strike {strike}</span>
-                      <span style={{ fontSize: "11px", fontWeight: 600, color: T.text }}>₹{(Math.random() * 200 + 50).toFixed(2)}</span>
+                {optionChain.map(({ strike, ce, pe }) => {
+                  const quote = activeOptionType === "CE" ? ce : pe;
+                  return (
+                    <div
+                      key={strike}
+                      onClick={() => openOrderTicket(strike, activeOptionType, quote.premium)}
+                      style={{
+                        background: T.cardSolid, border: `1px solid ${T.borderMid}`,
+                        borderRadius: "8px", padding: "8px 10px", cursor: "pointer",
+                        transition: "border-color 0.18s",
+                      }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(59,130,246,0.4)"; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = T.borderMid; }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+                        <span style={{ fontSize: "10px", color: T.textMuted }}>Strike {strike}</span>
+                        <span style={{ fontSize: "11px", fontWeight: 600, color: T.text }}>₹{quote.premium.toFixed(2)}</span>
+                      </div>
+                      <div style={{ fontSize: "9px", color: T.textDim, display: "flex", justifyContent: "space-between" }}>
+                        <span>IV: {quote.iv.toFixed(1)}%</span>
+                        <span>OI: {quote.oi.toLocaleString("en-IN")}</span>
+                      </div>
                     </div>
-                    <div style={{ fontSize: "9px", color: T.textDim, display: "flex", justifyContent: "space-between" }}>
-                      <span>IV: {(Math.random() * 20 + 15).toFixed(1)}%</span>
-                      <span>OI: {Math.floor(Math.random() * 50000 + 10000)}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
           </div>
 
         </div>
+
+        {/* ── Order Ticket Modal ── */}
+        {orderTicket && (() => {
+          const quote = optionChain.find(o => o.strike === orderTicket.strike);
+          const premium = quote ? (orderTicket.optionType === "CE" ? quote.ce.premium : quote.pe.premium) : orderPrice;
+          const effectivePrice = orderType === "MARKET" ? premium : orderPrice;
+          const totalValue = effectivePrice * orderQtyLots * lotSize;
+          const isBuy = orderTicket.side === "BUY";
+          const sideColor = isBuy ? "#22c55e" : "#ef4444";
+
+          return (
+            <div
+              style={{
+                position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                zIndex: 200,
+              }}
+              onClick={closeOrderTicket}
+            >
+              <div
+                onClick={e => e.stopPropagation()}
+                style={{
+                  width: "560px", maxWidth: "92vw", background: T.cardSolid,
+                  border: `1px solid ${T.borderMid}`, borderRadius: "16px",
+                  padding: "20px", display: "flex", flexDirection: "column", gap: "16px",
+                  boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+                }}
+              >
+                {/* Header */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: "15px", fontWeight: 700, color: T.text }}>
+                      {underlyingDisplay} {orderTicket.strike} {orderTicket.optionType}
+                    </div>
+                    <div style={{ fontSize: "11px", color: T.textMuted }}>Expiry: {CURRENT_EXPIRY} · NSE</div>
+                  </div>
+                  <button
+                    onClick={closeOrderTicket}
+                    style={{
+                      width: "28px", height: "28px", borderRadius: "8px",
+                      background: T.card, border: `1px solid ${T.border}`, color: T.textMuted,
+                      cursor: "pointer", fontSize: "14px",
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {orderResult ? (
+                  /* ── Confirmation view ── */
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "12px 0" }}>
+                    <div style={{
+                      width: "48px", height: "48px", borderRadius: "50%",
+                      background: orderResult.status === "EXECUTED" ? "rgba(34,197,94,0.15)"
+                        : orderResult.status === "PARTIALLY_EXECUTED" ? "rgba(59,130,246,0.15)" : "rgba(245,158,11,0.15)",
+                      display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px",
+                    }}>
+                      {orderResult.status === "EXECUTED" ? "✓" : orderResult.status === "PARTIALLY_EXECUTED" ? "◐" : "⏳"}
+                    </div>
+                    <div style={{ fontSize: "15px", fontWeight: 700, color: T.text, textAlign: "center" }}>
+                      {orderResult.status === "EXECUTED" && "Order Executed"}
+                      {orderResult.status === "PARTIALLY_EXECUTED" && "Order Partially Executed"}
+                      {orderResult.status === "PENDING" && "Order Placed — Pending"}
+                    </div>
+                    <div style={{ fontSize: "12px", color: T.textMuted, textAlign: "center" }}>{orderResult.message}</div>
+                    <div style={{
+                      width: "100%", background: T.card, border: `1px solid ${T.border}`, borderRadius: "10px",
+                      padding: "12px", fontSize: "12px", color: T.textBody, display: "flex", flexDirection: "column", gap: "6px",
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}><span>Order ID</span><span style={{ fontWeight: 700, color: T.text }}>{orderResult.orderId}</span></div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}><span>{orderTicket.side} · {underlyingDisplay} {orderTicket.strike} {orderTicket.optionType}</span></div>
+                      {orderResult.tradeId != null && (
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Trade ID</span><span style={{ fontWeight: 700, color: T.text }}>{orderResult.tradeId}</span></div>
+                      )}
+                      {orderResult.matchedQty != null && (
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Matched Qty</span><span style={{ fontWeight: 700, color: "#22c55e" }}>{orderResult.matchedQty}</span></div>
+                      )}
+                      {orderResult.remainingQty != null && (
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Remaining Qty</span><span style={{ fontWeight: 700, color: T.text }}>{orderResult.remainingQty}</span></div>
+                      )}
+                    </div>
+                    <button
+                      onClick={closeOrderTicket}
+                      style={{
+                        width: "100%", padding: "12px", fontSize: "14px", fontWeight: 700, borderRadius: "10px",
+                        background: T.card, border: `1px solid ${T.border}`, color: T.text, cursor: "pointer", marginTop: "4px",
+                      }}
+                    >
+                      Done
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Body: left = buy/sell + description, right = qty/price */}
+                    <div style={{ display: "flex", gap: "20px" }}>
+
+                      {/* Left column */}
+                      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
+                        <div style={{ display: "flex", gap: "6px" }}>
+                          <button
+                            onClick={() => setOrderTicket(t => t && { ...t, side: "BUY" })}
+                            style={{
+                              flex: 1, padding: "8px", fontSize: "12px", fontWeight: 700,
+                              background: isBuy ? "rgba(34,197,94,0.15)" : T.card,
+                              border: `1px solid ${isBuy ? "#22c55e" : T.border}`,
+                              borderRadius: "8px", color: isBuy ? "#22c55e" : T.textMuted, cursor: "pointer",
+                            }}
+                          >
+                            BUY
+                          </button>
+                          <button
+                            onClick={() => setOrderTicket(t => t && { ...t, side: "SELL" })}
+                            style={{
+                              flex: 1, padding: "8px", fontSize: "12px", fontWeight: 700,
+                              background: !isBuy ? "rgba(239,68,68,0.15)" : T.card,
+                              border: `1px solid ${!isBuy ? "#ef4444" : T.border}`,
+                              borderRadius: "8px", color: !isBuy ? "#ef4444" : T.textMuted, cursor: "pointer",
+                            }}
+                          >
+                            SELL
+                          </button>
+                        </div>
+
+                        <div style={{
+                          fontSize: "13px", lineHeight: 1.6, color: T.textBody,
+                          background: T.card, border: `1px solid ${T.border}`, borderRadius: "10px", padding: "12px",
+                        }}>
+                          You are{" "}
+                          <span style={{ fontWeight: 700, color: sideColor }}>{isBuy ? "BUYING" : "SELLING"}</span>
+                          {" "}{orderQtyLots} lot{orderQtyLots !== 1 ? "s" : ""} ({(orderQtyLots * lotSize).toLocaleString("en-IN")} qty) of{" "}
+                          <span style={{ fontWeight: 700, color: T.text }}>
+                            {underlyingDisplay} {orderTicket.strike} {orderTicket.optionType}
+                          </span>
+                          {" "}{orderType === "MARKET" ? "at market price" : <>at ₹{orderPrice.toFixed(2)} per unit</>}, expiring {CURRENT_EXPIRY}.
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: "11px", color: T.textMuted }}>Product</label>
+                          <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+                            {(["MIS", "NRML"] as const).map(pt => (
+                              <button
+                                key={pt}
+                                onClick={() => setOrderProductType(pt)}
+                                style={{
+                                  flex: 1, padding: "6px", fontSize: "11px", fontWeight: 600,
+                                  background: orderProductType === pt ? "rgba(139,92,246,0.15)" : T.card,
+                                  border: `1px solid ${orderProductType === pt ? "#8b5cf6" : T.border}`,
+                                  borderRadius: "6px", color: orderProductType === pt ? "#8b5cf6" : T.textMuted, cursor: "pointer",
+                                }}
+                              >
+                                {pt}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right column */}
+                      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "10px" }}>
+                        <div style={{ fontSize: "11px", color: T.textMuted }}>
+                          Lot Size: <span style={{ fontWeight: 700, color: T.text }}>{lotSize}</span>
+                          {" "}· Min Qty: <span style={{ fontWeight: 700, color: T.text }}>1 lot ({lotSize})</span>
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: "11px", color: T.textMuted }}>Quantity (lots)</label>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
+                            <button
+                              onClick={() => setOrderQtyLots(q => Math.max(1, q - 1))}
+                              style={{ width: "28px", height: "28px", borderRadius: "8px", background: T.card, border: `1px solid ${T.border}`, color: T.text, cursor: "pointer" }}
+                            >
+                              −
+                            </button>
+                            <span style={{ fontSize: "14px", fontWeight: 700, color: T.text, minWidth: "24px", textAlign: "center" }}>
+                              {orderQtyLots}
+                            </span>
+                            <button
+                              onClick={() => setOrderQtyLots(q => q + 1)}
+                              style={{ width: "28px", height: "28px", borderRadius: "8px", background: T.card, border: `1px solid ${T.border}`, color: T.text, cursor: "pointer" }}
+                            >
+                              +
+                            </button>
+                            <span style={{ fontSize: "11px", color: T.textDim }}>= {(orderQtyLots * lotSize).toLocaleString("en-IN")} qty</span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: "11px", color: T.textMuted }}>Order Type</label>
+                          <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+                            {(["LIMIT", "MARKET"] as const).map(ot => (
+                              <button
+                                key={ot}
+                                onClick={() => setOrderType(ot)}
+                                style={{
+                                  flex: 1, padding: "6px", fontSize: "11px", fontWeight: 600,
+                                  background: orderType === ot ? "rgba(59,130,246,0.15)" : T.card,
+                                  border: `1px solid ${orderType === ot ? "#3b82f6" : T.border}`,
+                                  borderRadius: "6px", color: orderType === ot ? "#3b82f6" : T.textMuted, cursor: "pointer",
+                                }}
+                              >
+                                {ot}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: "11px", color: T.textMuted }}>Price {orderType === "MARKET" && "(at LTP)"}</label>
+                          <input
+                            type="number"
+                            value={orderType === "MARKET" ? premium.toFixed(2) : orderPrice}
+                            disabled={orderType === "MARKET"}
+                            onChange={e => setOrderPrice(parseFloat(e.target.value) || 0)}
+                            style={{
+                              width: "100%", marginTop: "4px", padding: "8px 10px", fontSize: "13px", fontWeight: 600,
+                              background: orderType === "MARKET" ? T.border : T.card, border: `1px solid ${T.border}`,
+                              borderRadius: "8px", color: T.text, boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+
+                        <div style={{ fontSize: "12px", color: T.textMuted, display: "flex", justifyContent: "space-between", paddingTop: "4px", borderTop: `1px solid ${T.border}` }}>
+                          <span>Order Value</span>
+                          <span style={{ fontWeight: 700, color: T.text }}>₹{totalValue.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {orderError && (
+                      <div style={{
+                        fontSize: "12px", color: "#ef4444", textAlign: "center", background: "rgba(239,68,68,0.08)",
+                        border: "1px solid rgba(239,68,68,0.25)", borderRadius: "8px", padding: "8px",
+                      }}>
+                        {orderError}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={placeOrder}
+                      disabled={isSubmittingOrder}
+                      style={{
+                        padding: "12px", fontSize: "14px", fontWeight: 700, borderRadius: "10px",
+                        background: isBuy ? "#22c55e" : "#ef4444", border: "none", color: "#fff",
+                        cursor: isSubmittingOrder ? "not-allowed" : "pointer", opacity: isSubmittingOrder ? 0.7 : 1,
+                      }}
+                    >
+                      {isSubmittingOrder ? "Placing Order…" : `Place ${orderTicket.side} Order`}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
       </main>
 

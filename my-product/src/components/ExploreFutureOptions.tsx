@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "./header";
 import { Footer } from "./footer";
@@ -43,6 +43,54 @@ function findApiIndex(apiIndices: MarketIndex[], variants: string[]): MarketInde
     const n = normalizeName(i.name || "");
     return variants.some(v => { const nv = normalizeName(v); return n === nv || n.includes(nv); });
   });
+}
+
+interface Order {
+  id: number;
+  user_id: number;
+  symbol: string;
+  exchange: string;
+  side: "BUY" | "SELL";
+  quantity: number;
+  price: number | null;
+  order_type: string;
+  product_type: string;
+  validity: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// The order API returns either a plain string `detail`, or (on pydantic
+// validation failures) an array of { loc, msg, ... } objects.
+function extractErrorMessage(body: any, fallback: string): string {
+  const detail = body?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d: any) => {
+        const field = Array.isArray(d?.loc) ? d.loc.slice(-1)[0] : d?.loc;
+        return field ? `${field}: ${d?.msg ?? "invalid value"}` : d?.msg ?? "invalid value";
+      })
+      .join("; ");
+  }
+  return fallback;
+}
+
+function statusColor(status: string): string {
+  switch (status) {
+    case "EXECUTED": return "#22c55e";
+    case "PARTIALLY_EXECUTED": return "#3b82f6";
+    case "PENDING": return "#f59e0b";
+    case "CANCELLED": return "#ef4444";
+    default: return "#8b949e";
+  }
+}
+
+function fmtDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 /* ── Theme ─────────────────────────────────────────────── */
@@ -185,6 +233,82 @@ export default function ExploreFutureOptions() {
       bars: BAR_PATTERNS[idx.key],
     };
   });
+
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (activeSection !== "Orders" && activeSection !== "Positions") return;
+    let cancelled = false;
+
+    const fetchOrders = () => {
+      setOrdersLoading(true);
+      fetch(`${BASE_URL}/orders`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
+      })
+        .then(async r => ({ ok: r.ok, body: await r.json() }))
+        .then(({ ok, body }) => {
+          if (cancelled) return;
+          if (!ok || !body?.success) {
+            setOrdersError(extractErrorMessage(body, "Failed to load orders."));
+            return;
+          }
+          setOrders(Array.isArray(body.orders) ? body.orders : []);
+          setOrdersError(null);
+        })
+        .catch(() => { if (!cancelled) setOrdersError("Network error while loading orders."); })
+        .finally(() => { if (!cancelled) setOrdersLoading(false); });
+    };
+
+    fetchOrders();
+    const id = setInterval(fetchOrders, 10_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [activeSection]);
+
+  async function cancelOrder(orderId: number) {
+    setCancellingId(orderId);
+    try {
+      const res = await fetch(`${BASE_URL}/orders/${orderId}/cancel`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+        },
+        body: JSON.stringify({}),
+      });
+      const body = await res.json();
+      if (!res.ok || !body?.success) {
+        setOrdersError(extractErrorMessage(body, "Could not cancel order."));
+        return;
+      }
+      setOrders(prev => prev.map(o => (o.id === orderId ? { ...o, status: "CANCELLED" } : o)));
+    } catch {
+      setOrdersError("Network error while cancelling order.");
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
+  // Positions derived from filled orders — the backend has no dedicated
+  // positions endpoint yet, so this is an approximation based on each
+  // order's full quantity (the order-list response doesn't expose
+  // matched_quantity for partial fills, only the create-order response does).
+  const positions = useMemo(() => {
+    const filled = orders.filter(o => o.status === "EXECUTED" || o.status === "PARTIALLY_EXECUTED");
+    const bySymbol: Record<string, { symbol: string; exchange: string; netQty: number; buyValue: number; sellValue: number; buyQty: number; sellQty: number }> = {};
+    filled.forEach(o => {
+      if (!bySymbol[o.symbol]) {
+        bySymbol[o.symbol] = { symbol: o.symbol, exchange: o.exchange, netQty: 0, buyValue: 0, sellValue: 0, buyQty: 0, sellQty: 0 };
+      }
+      const p = bySymbol[o.symbol];
+      const value = (o.price ?? 0) * o.quantity;
+      if (o.side === "BUY") { p.netQty += o.quantity; p.buyQty += o.quantity; p.buyValue += value; }
+      else { p.netQty -= o.quantity; p.sellQty += o.quantity; p.sellValue += value; }
+    });
+    return Object.values(bySymbol).filter(p => p.netQty !== 0);
+  }, [orders]);
 
   useEffect(() => {
     document.body.style.overflow = "auto";
@@ -350,118 +474,253 @@ export default function ExploreFutureOptions() {
           </div>
         </div>
 
-        {/* ── Top traded ── */}
-        <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
+        {/* ── Top traded (Explore tab) ── */}
+        {activeSection === "Explore" && (
+          <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-              <span style={{ fontSize: "17px", fontWeight: 700, color: T.text }}>Top traded</span>
-              <div style={{ display: "flex", gap: "6px" }}>
-                {ASSET_TABS.map(tab => {
-                  const active = activeAsset === tab;
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+                <span style={{ fontSize: "17px", fontWeight: 700, color: T.text }}>Top traded</span>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  {ASSET_TABS.map(tab => {
+                    const active = activeAsset === tab;
+                    return (
+                      <button
+                        key={tab}
+                        onClick={() => setActiveAsset(tab)}
+                        style={{
+                          padding: "6px 14px", borderRadius: "20px", fontSize: "13px", fontWeight: 600,
+                          color: active ? "#fff" : T.textMuted,
+                          background: active ? T.activeBorder : T.tabBg,
+                          border: `1px solid ${active ? T.activeBorder : T.border}`,
+                          cursor: "pointer", transition: "all 0.18s",
+                        }}
+                      >
+                        {tab}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: T.activeBorder, cursor: "pointer" }}>
+                See more
+              </span>
+            </div>
+
+            {activeAsset === "Equity" ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+                {topTraded.map((item) => {
+                  const loading = !item.live;
+                  const chg = item.live?.change ?? 0;
+                  const positive = chg >= 0;
+                  const color = positive ? "#22c55e" : "#ef4444";
                   return (
-                    <button
-                      key={tab}
-                      onClick={() => setActiveAsset(tab)}
+                    <div
+                      key={item.key}
+                      onClick={() => {
+                        if (item.live) {
+                          navigate("/terminal/fno", {
+                            state: {
+                              indexData: {
+                                name: item.name,
+                                symbol: item.key.toUpperCase(),
+                                value: item.live.value,
+                                change: item.live.change,
+                                change_pct: item.live.change_pct,
+                              },
+                            },
+                          });
+                        }
+                      }}
                       style={{
-                        padding: "6px 14px", borderRadius: "20px", fontSize: "13px", fontWeight: 600,
-                        color: active ? "#fff" : T.textMuted,
-                        background: active ? T.activeBorder : T.tabBg,
-                        border: `1px solid ${active ? T.activeBorder : T.border}`,
-                        cursor: "pointer", transition: "all 0.18s",
+                        position: "relative", background: T.card, border: `1px solid ${T.border}`,
+                        borderRadius: "16px", padding: "18px", display: "flex", flexDirection: "column", gap: "14px",
+                        transition: "border-color 0.18s, transform 0.18s", cursor: loading ? "default" : "pointer",
+                      }}
+                      onMouseEnter={e => {
+                        (e.currentTarget as HTMLDivElement).style.borderColor = T.borderMid;
+                        if (!loading) (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)";
+                      }}
+                      onMouseLeave={e => {
+                        (e.currentTarget as HTMLDivElement).style.borderColor = T.border;
+                        (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)";
                       }}
                     >
-                      {tab}
-                    </button>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: "14px", fontWeight: 700, color: T.text }}>{item.name}</span>
+                        <CandleSparkline bars={item.bars} positive={positive} />
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                        <div>
+                          <div style={{ fontSize: "19px", fontWeight: 700, color: T.text }}>
+                            {loading ? "—" : `₹${fmt(item.live!.value)}`}
+                          </div>
+                          <div style={{ fontSize: "12px", fontWeight: 600, color: loading ? T.textDim : color }}>
+                            {loading ? "Loading…" : `${fmtChange(chg)} (${fmtPct(item.live!.change_pct)})`}
+                          </div>
+                        </div>
+                        <button
+                          style={{
+                            width: "30px", height: "30px", borderRadius: "50%",
+                            background: T.tabBg, border: `1px solid ${T.border}`,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            cursor: "pointer", flexShrink: 0,
+                          }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = T.tabHover; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = T.tabBg; }}
+                        >
+                          <Link2 style={{ width: "14px", height: "14px", color: T.textMuted }} />
+                        </button>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
-            </div>
-            <span style={{ fontSize: "13px", fontWeight: 600, color: T.activeBorder, cursor: "pointer" }}>
-              See more
-            </span>
+            ) : (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                minHeight: "160px", background: T.card, border: `1px solid ${T.border}`,
+                borderRadius: "16px", fontSize: "13px", color: T.textMuted,
+              }}>
+                Commodities F&O data coming soon
+              </div>
+            )}
           </div>
+        )}
 
-          {activeAsset === "Equity" ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
-              {topTraded.map((item) => {
-                const loading = !item.live;
-                const chg = item.live?.change ?? 0;
-                const positive = chg >= 0;
-                const color = positive ? "#22c55e" : "#ef4444";
-                return (
+        {/* ── Orders tab ── */}
+        {activeSection === "Orders" && (
+          <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
+            <div style={{ fontSize: "17px", fontWeight: 700, color: T.text, marginBottom: "16px" }}>Order Book</div>
+
+            {ordersError && (
+              <div style={{
+                fontSize: "13px", color: "#ef4444", background: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.25)", borderRadius: "8px", padding: "10px 14px", marginBottom: "16px",
+              }}>
+                {ordersError}
+              </div>
+            )}
+
+            {ordersLoading && orders.length === 0 ? (
+              <div style={{ fontSize: "13px", color: T.textMuted, textAlign: "center", padding: "40px" }}>Loading orders…</div>
+            ) : orders.length === 0 ? (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                minHeight: "160px", background: T.card, border: `1px solid ${T.border}`,
+                borderRadius: "16px", fontSize: "13px", color: T.textMuted,
+              }}>
+                No orders placed yet. Buy or sell an option from the terminal to see it here.
+              </div>
+            ) : (
+              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: "16px", overflow: "hidden" }}>
+                {orders.map((o, i) => (
                   <div
-                    key={item.key}
-                    onClick={() => {
-                      if (item.live) {
-                        navigate("/terminal/fno", {
-                          state: {
-                            indexData: {
-                              name: item.name,
-                              symbol: item.key.toUpperCase(),
-                              value: item.live.value,
-                              change: item.live.change,
-                              change_pct: item.live.change_pct,
-                            },
-                          },
-                        });
-                      }
-                    }}
+                    key={o.id}
                     style={{
-                      position: "relative", background: T.card, border: `1px solid ${T.border}`,
-                      borderRadius: "16px", padding: "18px", display: "flex", flexDirection: "column", gap: "14px",
-                      transition: "border-color 0.18s, transform 0.18s", cursor: loading ? "default" : "pointer",
-                    }}
-                    onMouseEnter={e => {
-                      (e.currentTarget as HTMLDivElement).style.borderColor = T.borderMid;
-                      if (!loading) (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)";
-                    }}
-                    onMouseLeave={e => {
-                      (e.currentTarget as HTMLDivElement).style.borderColor = T.border;
-                      (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)";
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "14px 18px", borderBottom: i < orders.length - 1 ? `1px solid ${T.border}` : "none",
+                      gap: "12px",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: "14px", fontWeight: 700, color: T.text }}>{item.name}</span>
-                      <CandleSparkline bars={item.bars} positive={positive} />
-                    </div>
-
-                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-                      <div>
-                        <div style={{ fontSize: "19px", fontWeight: 700, color: T.text }}>
-                          {loading ? "—" : `₹${fmt(item.live!.value)}`}
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1, minWidth: 0 }}>
+                      <span style={{
+                        fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "100px",
+                        color: o.side === "BUY" ? "#22c55e" : "#ef4444",
+                        background: o.side === "BUY" ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+                        flexShrink: 0,
+                      }}>
+                        {o.side}
+                      </span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: "13px", fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {o.symbol}
                         </div>
-                        <div style={{ fontSize: "12px", fontWeight: 600, color: loading ? T.textDim : color }}>
-                          {loading ? "Loading…" : `${fmtChange(chg)} (${fmtPct(item.live!.change_pct)})`}
+                        <div style={{ fontSize: "11px", color: T.textDim }}>
+                          {o.exchange} · {o.order_type} · {o.product_type} · Qty {o.quantity}
+                          {o.price != null && ` · ₹${fmt(o.price)}`}
                         </div>
                       </div>
-                      <button
-                        style={{
-                          width: "30px", height: "30px", borderRadius: "50%",
-                          background: T.tabBg, border: `1px solid ${T.border}`,
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          cursor: "pointer", flexShrink: 0,
-                        }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = T.tabHover; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = T.tabBg; }}
-                      >
-                        <Link2 style={{ width: "14px", height: "14px", color: T.textMuted }} />
-                      </button>
                     </div>
+
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <span style={{
+                        fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "100px",
+                        color: statusColor(o.status), background: `${statusColor(o.status)}1a`,
+                      }}>
+                        {o.status.replace("_", " ")}
+                      </span>
+                      <div style={{ fontSize: "10px", color: T.textDim, marginTop: "4px" }}>{fmtDateTime(o.created_at)}</div>
+                    </div>
+
+                    {o.status === "PENDING" && (
+                      <button
+                        onClick={() => cancelOrder(o.id)}
+                        disabled={cancellingId === o.id}
+                        style={{
+                          fontSize: "11px", fontWeight: 600, padding: "6px 12px", borderRadius: "8px",
+                          background: "transparent", border: `1px solid ${T.border}`, color: T.textMuted,
+                          cursor: cancellingId === o.id ? "not-allowed" : "pointer", flexShrink: 0,
+                        }}
+                      >
+                        {cancellingId === o.id ? "Cancelling…" : "Cancel"}
+                      </button>
+                    )}
                   </div>
-                );
-              })}
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Positions tab ── */}
+        {activeSection === "Positions" && (
+          <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
+            <div style={{ fontSize: "17px", fontWeight: 700, color: T.text, marginBottom: "4px" }}>Positions</div>
+            <div style={{ fontSize: "12px", color: T.textDim, marginBottom: "16px" }}>
+              Derived from executed orders · approximate until the backend exposes a dedicated positions endpoint
             </div>
-          ) : (
-            <div style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              minHeight: "160px", background: T.card, border: `1px solid ${T.border}`,
-              borderRadius: "16px", fontSize: "13px", color: T.textMuted,
-            }}>
-              Commodities F&O data coming soon
-            </div>
-          )}
-        </div>
+
+            {positions.length === 0 ? (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                minHeight: "160px", background: T.card, border: `1px solid ${T.border}`,
+                borderRadius: "16px", fontSize: "13px", color: T.textMuted,
+              }}>
+                No open positions.
+              </div>
+            ) : (
+              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: "16px", overflow: "hidden" }}>
+                {positions.map((p, i) => {
+                  const avgPrice = p.netQty > 0
+                    ? p.buyValue / (p.buyQty || 1)
+                    : p.sellValue / (p.sellQty || 1);
+                  return (
+                    <div
+                      key={p.symbol}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        padding: "14px 18px", borderBottom: i < positions.length - 1 ? `1px solid ${T.border}` : "none",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>{p.symbol}</div>
+                        <div style={{ fontSize: "11px", color: T.textDim }}>{p.exchange}</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: "13px", fontWeight: 700, color: p.netQty > 0 ? "#22c55e" : "#ef4444" }}>
+                          {p.netQty > 0 ? "LONG" : "SHORT"} {Math.abs(p.netQty)}
+                        </div>
+                        <div style={{ fontSize: "11px", color: T.textDim }}>Avg ₹{fmt(avgPrice)}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
       </main>
 
