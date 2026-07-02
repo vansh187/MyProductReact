@@ -75,13 +75,13 @@ const NAV_ITEMS = [
     accent: "#3b82f6",
     sections: [
       { heading: "Trade", items: [
-        { icon: BarChart2,  title: "Explore Stocks",  desc: "Browse real-time market data",       color: "#3b82f6" },
-        { icon: TrendingUp, title: "Positions",        desc: "Track your open positions",          color: "#8b5cf6" },
-        { icon: FileText,   title: "Orders",           desc: "Manage pending & executed orders",   color: "#f59e0b" },
+        { icon: BarChart2,  title: "Explore Stocks",  desc: "Browse real-time market data",       color: "#3b82f6", route: null },
+        { icon: TrendingUp, title: "Positions",        desc: "Track your open positions",          color: "#8b5cf6", route: null },
+        { icon: FileText,   title: "Orders",           desc: "Manage pending & executed orders",   color: "#f59e0b", route: null },
       ]},
       { heading: "Portfolio", items: [
-        { icon: Briefcase, title: "My Holdings",  desc: "View your stock portfolio",           color: "#10b981" },
-        { icon: Bookmark,  title: "Watchlist",    desc: "Monitor your tracked stocks",         color: "#ec4899" },
+        { icon: Briefcase, title: "My Holdings",  desc: "View your stock portfolio",           color: "#10b981", route: null },
+        { icon: Bookmark,  title: "Watchlist",    desc: "Monitor your tracked stocks",         color: "#ec4899", route: null },
       ]},
     ],
   },
@@ -90,12 +90,12 @@ const NAV_ITEMS = [
     accent: "#10b981",
     sections: [
       { heading: "Discover", items: [
-        { icon: PieChart,  title: "Explore Funds",  desc: "Browse top-rated mutual funds",      color: "#10b981" },
-        { icon: Activity,  title: "Dashboard",       desc: "Portfolio overview & analytics",     color: "#3b82f6" },
+        { icon: PieChart,  title: "Explore Funds",  desc: "Browse top-rated mutual funds",      color: "#10b981", route: null },
+        { icon: Activity,  title: "Dashboard",       desc: "Portfolio overview & analytics",     color: "#3b82f6", route: null },
       ]},
       { heading: "Invest", items: [
-        { icon: RefreshCw, title: "SIP Manager",  desc: "Manage systematic investment plans",  color: "#8b5cf6" },
-        { icon: Bookmark,  title: "Watchlist",    desc: "Track your favourite funds",          color: "#f59e0b" },
+        { icon: RefreshCw, title: "SIP Manager",  desc: "Manage systematic investment plans",  color: "#8b5cf6", route: null },
+        { icon: Bookmark,  title: "Watchlist",    desc: "Track your favourite funds",          color: "#f59e0b", route: null },
       ]},
     ],
   },
@@ -104,9 +104,9 @@ const NAV_ITEMS = [
     accent: "#f59e0b",
     sections: [
       { heading: "Futures & Options", items: [
-        { icon: Layers,     title: "Explore F&O",  desc: "Options & futures market overview",  color: "#f59e0b" },
-        { icon: TrendingUp, title: "Positions",    desc: "All your active F&O positions",      color: "#3b82f6" },
-        { icon: List,       title: "Orders",       desc: "F&O order book & history",           color: "#10b981" },
+        { icon: Layers,     title: "Explore F&O",  desc: "Options & futures market overview",  color: "#f59e0b", route: "/explore/fno", tab: "Explore"   },
+        { icon: TrendingUp, title: "Positions",    desc: "All your active F&O positions",      color: "#3b82f6", route: "/explore/fno", tab: "Positions" },
+        { icon: List,       title: "Orders",       desc: "F&O order book & history",           color: "#10b981", route: "/explore/fno", tab: "Orders"    },
       ]},
     ],
   },
@@ -117,6 +117,7 @@ function NavDropdown({ label, accent, sections, isDark }: typeof NAV_ITEMS[0] & 
   const C = isDark ? TH.dark : TH.light;
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navigate = useNavigate();
 
   const show = () => { if (timer.current) clearTimeout(timer.current); setOpen(true); };
   const hide = () => { timer.current = setTimeout(() => setOpen(false), 120); };
@@ -166,7 +167,8 @@ function NavDropdown({ label, accent, sections, isDark }: typeof NAV_ITEMS[0] & 
               {section.items.map((item) => {
                 const Icon = item.icon;
                 return (
-                  <a key={item.title} href="#" style={{ textDecoration: "none", display: "block" }}
+                  <div key={item.title} style={{ textDecoration: "none", display: "block", cursor: "pointer" }}
+                    onClick={() => { if (item.route) { setOpen(false); navigate(item.route, { state: { tab: (item as any).tab ?? null } }); } }}
                     onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = C.hover}
                     onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
                   >
@@ -188,7 +190,7 @@ function NavDropdown({ label, accent, sections, isDark }: typeof NAV_ITEMS[0] & 
                       </div>
                       <ArrowUpRight style={{ width: "13px", height: "13px", color: C.textMuted, flexShrink: 0, opacity: 0.6 }} />
                     </div>
-                  </a>
+                  </div>
                 );
               })}
 
