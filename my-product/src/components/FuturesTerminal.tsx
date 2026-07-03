@@ -120,14 +120,32 @@ const CANDLE_SLUG_MAP: Record<string, string> = {
 // tries several plausible field-name conventions (our own API's likely
 // camelCase, and Shoonya TPSeries-style short codes it may be proxying) and
 // only accepts entries where every field parses to a real number/timestamp.
+// The backend's actual format, confirmed from a live response: "DD-MM-YYYY
+// HH:mm:ss", already expressed in IST (e.g. "03-07-2026 09:15:00"). This is
+// NOT reliably parseable by Date.parse() — it's ambiguous with MM-DD-YYYY and
+// commonly comes back as NaN or the wrong date, which silently dropped every
+// backfilled candle. Parse it explicitly instead of guessing.
+function parseISTTimestamp(s: string): number | null {
+  const m = s.match(/^(\d{2})-(\d{2})-(\d{4})[ T](\d{2}):(\d{2}):(\d{2})/);
+  if (!m) return null;
+  const [, dd, mm, yyyy, hh, min, ss] = m;
+  // Build the UTC instant corresponding to these IST wall-clock components.
+  return Date.UTC(+yyyy, +mm - 1, +dd, +hh, +min, +ss) - 5.5 * 60 * 60 * 1000;
+}
+
 function normalizeHistoricalCandle(raw: any): Candle | null {
   const rawTime = raw?.timestamp ?? raw?.time ?? raw?.t;
   let timestamp: number | null = null;
   if (typeof rawTime === "number") {
     timestamp = rawTime < 1e12 ? rawTime * 1000 : rawTime;
   } else if (typeof rawTime === "string") {
-    const parsed = Date.parse(rawTime);
-    timestamp = isNaN(parsed) ? null : parsed;
+    const istParsed = parseISTTimestamp(rawTime);
+    if (istParsed != null) {
+      timestamp = istParsed;
+    } else {
+      const parsed = Date.parse(rawTime);
+      timestamp = isNaN(parsed) ? null : parsed;
+    }
   }
   const open = Number(raw?.open ?? raw?.o ?? raw?.into);
   const high = Number(raw?.high ?? raw?.h ?? raw?.inth);
@@ -725,11 +743,18 @@ export default function FuturesTerminal() {
 
         if (backfilled.length === 0) return;
 
-        // Only seed with history if nothing's been captured live yet — once
-        // the tick stream has built today's candles, that's the source of
-        // truth and shouldn't be clobbered by a coarser 1m backfill.
+        // Only seed with history if nothing *valid* has been captured live
+        // yet. Checking raw prev.length here isn't enough: a cache written by
+        // an earlier, buggier build (e.g. before timestamp parsing was fixed)
+        // can be non-empty but contain garbage that the market-hours/date
+        // filter rejects wholesale — which would otherwise permanently block
+        // this backfill from ever re-running for the rest of the day. Require
+        // at least one cached candle to actually be a valid today-session
+        // candle before treating the cache as authoritative.
         setCandles(prev => {
-          if (prev.length > 0) return prev;
+          const today = istDateKey(Date.now());
+          const hasValidToday = prev.some(c => isWithinMarketHours(c.timestamp) && istDateKey(c.timestamp) === today);
+          if (hasValidToday) return prev;
           try {
             localStorage.setItem(cacheKey, JSON.stringify(backfilled));
           } catch (e) {
@@ -1093,6 +1118,36 @@ export default function FuturesTerminal() {
         </div>
 
       </main>
+
+      {/* ── Compact copyright bar — deliberately not the full marketing
+          Footer (products/company/contact sections): that pushed this page
+          taller than one viewport, which is what forced scrolling to see the
+          chart's x-axis in the first place. This is a fixed-height sliver
+          instead, so the terminal still fits in exactly one screen. ── */}
+      <div style={{
+        flexShrink: 0, borderTop: `1px solid ${T.border}`, background: T.headerBar,
+        padding: "8px 20px", display: "flex", alignItems: "center", justifyContent: "space-between",
+        flexWrap: "wrap", gap: "8px",
+      }}>
+        <p style={{ fontSize: "11px", color: T.textMuted, margin: 0 }}>
+          © {new Date().getFullYear()} PrimePipTrade.com. All rights reserved.
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+          {["Privacy Policy", "Terms", "Risk Disclosure"].map((item, i, arr) => (
+            <span key={item} style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+              <a
+                href="#"
+                style={{ fontSize: "11px", color: T.textMuted, textDecoration: "none" }}
+                onMouseEnter={e => (e.currentTarget as HTMLAnchorElement).style.color = T.textBody}
+                onMouseLeave={e => (e.currentTarget as HTMLAnchorElement).style.color = T.textMuted}
+              >
+                {item}
+              </a>
+              {i < arr.length - 1 && <span style={{ color: T.border, fontSize: "12px", lineHeight: 1 }}>·</span>}
+            </span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
