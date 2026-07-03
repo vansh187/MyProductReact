@@ -735,10 +735,16 @@ export default function FuturesTerminal() {
       .then((data: { candles?: any[] }) => {
         if (cancelled || !Array.isArray(data.candles) || data.candles.length === 0) return;
 
+        // Only filter by time-of-day (09:15-15:30), not calendar date — if
+        // today's session hasn't started yet (pre-market, or the backend
+        // hasn't ingested today's data yet), this correctly falls back to
+        // showing the most recent completed session (e.g. last Friday's close
+        // over a weekend) instead of an empty chart. The day-of-month
+        // separator on the x-axis already makes it clear which date is shown.
         const backfilled = data.candles
           .map(normalizeHistoricalCandle)
           .filter((c): c is Candle => c !== null)
-          .filter(c => isWithinMarketHours(c.timestamp) && istDateKey(c.timestamp) === istDateKey(Date.now()))
+          .filter(c => isWithinMarketHours(c.timestamp))
           .sort((a, b) => a.timestamp - b.timestamp);
 
         if (backfilled.length === 0) return;
