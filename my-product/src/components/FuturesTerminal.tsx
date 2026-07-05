@@ -6,7 +6,7 @@ import {
   Crosshair, Slash, Minus, Ruler, Type, Magnet, Lock, Unlock, Trash2, ZoomIn, ZoomOut, Layers, Link2,
 } from "lucide-react";
 import {
-  BASE_URL, normalizeName, INDEX_MATCH_VARIANTS,
+  BASE_URL, normalizeName, INDEX_MATCH_VARIANTS, SUPPORTED_UNDERLYING_SLUGS,
   type Candle, type MarketData, type IndexData,
 } from "../lib/fno";
 
@@ -106,20 +106,7 @@ function istDateKey(ts: number): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-// Only these three underlyings have a historical-candles endpoint deployed
-// (per the backend team). Others (midcpnifty, sensex, indiavix) fall back to
-// live-tick-only + the day-summary empty state.
-const CANDLE_SLUG_MAP: Record<string, string> = {
-  nifty: "nifty", nifty50: "nifty",
-  banknifty: "banknifty",
-  finnifty: "finnifty",
-};
 
-// The exact response schema has never been observed with real data (the
-// endpoint has only ever returned `no_candle_data` in testing), so this
-// tries several plausible field-name conventions (our own API's likely
-// camelCase, and Shoonya TPSeries-style short codes it may be proxying) and
-// only accepts entries where every field parses to a real number/timestamp.
 // The backend's actual format, confirmed from a live response: "DD-MM-YYYY
 // HH:mm:ss", already expressed in IST (e.g. "03-07-2026 09:15:00"). This is
 // NOT reliably parseable by Date.parse() — it's ambiguous with MM-DD-YYYY and
@@ -726,7 +713,7 @@ export default function FuturesTerminal() {
   // intraday history yet — but the integration is otherwise complete and
   // will start working the moment it does, with no further frontend changes.
   useEffect(() => {
-    const slug = CANDLE_SLUG_MAP[symbolKey];
+    const slug = SUPPORTED_UNDERLYING_SLUGS[symbolKey];
     if (!slug) return;
     let cancelled = false;
 

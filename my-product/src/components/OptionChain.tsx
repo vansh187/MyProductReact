@@ -6,8 +6,9 @@ import { ChevronLeft, RefreshCw } from "lucide-react";
 import {
   BASE_URL, normalizeName, INDEX_MATCH_VARIANTS, UNDERLYING_DISPLAY,
   LOT_SIZE_MAP, DEFAULT_LOT_SIZE, STRIKE_STEP_MAP, DEFAULT_STRIKE_STEP,
-  CURRENT_EXPIRY, buildOptionSymbol, extractErrorMessage, buildOptionChain,
-  type MarketData, type IndexData,
+  CURRENT_EXPIRY, SUPPORTED_UNDERLYING_SLUGS, buildOptionSymbol, extractErrorMessage,
+  isoExpiryToDisplay,
+  type MarketData, type IndexData, type OptionChainResponse,
 } from "../lib/fno";
 
 const DARK = {
@@ -62,21 +63,33 @@ export default function OptionChain() {
   const lotSize = LOT_SIZE_MAP[symbolKey] ?? DEFAULT_LOT_SIZE;
   const strikeStep = STRIKE_STEP_MAP[symbolKey] ?? DEFAULT_STRIKE_STEP;
 
-  // Live spot price, kept fresh by the indices stream — the option chain
-  // reprices off this on every tick, so premiums update in real time.
+  // Live spot price + change%, kept fresh by the indices stream — used only
+  // for the header ticker (the chain's own repricing uses chainData.spot,
+  // the exact spot the backend used when it computed that snapshot).
   const [livePrice, setLivePrice] = useState({
     value: indexData.value,
     change: indexData.change,
     change_pct: indexData.change_pct,
   });
-  const [connected, setConnected] = useState(false);
+  // The real live option chain (real LTP/OI/IV per strike, ~20 strikes each
+  // side of spot, pushed by the backend's Shoonya-backed stream). No
+  // synthetic fallback — if this underlying isn't supported or the stream
+  // has nothing yet, chainStatus reflects that honestly instead of showing
+  // fake numbers.
+  const [chainData, setChainData] = useState<OptionChainResponse | null>(null);
+  const [chainStatus, setChainStatus] = useState<"connecting" | "live" | "reconnecting" | "unavailable">("connecting");
+  const [chainErrorMessage, setChainErrorMessage] = useState<string | null>(null);
+  // From the same indices stream, so we can tell "market's closed, there's
+  // genuinely no live session right now" apart from "connection dropped,
+  // retrying" — those are very different situations and shouldn't share a
+  // perpetual "Reconnecting…" message.
+  const [marketStatus, setMarketStatus] = useState<string | null>(null);
+  const marketClosed = marketStatus === "closed";
 
-  const optionChain = useMemo(
-    () => buildOptionChain(livePrice.value, strikeStep),
-    [livePrice.value, strikeStep]
-  );
-
-  const atmStrike = useMemo(() => Math.round(livePrice.value / strikeStep) * strikeStep, [livePrice.value, strikeStep]);
+  const strikes = chainData?.strikes ?? [];
+  const spot = chainData?.spot ?? livePrice.value;
+  const expiryDisplay = chainData?.expiry ? isoExpiryToDisplay(chainData.expiry) : CURRENT_EXPIRY;
+  const atmStrike = useMemo(() => Math.round(spot / strikeStep) * strikeStep, [spot, strikeStep]);
 
   const [orderTicket, setOrderTicket] = useState<OrderTicket | null>(null);
   const [orderQtyLots, setOrderQtyLots] = useState(1);
@@ -118,7 +131,7 @@ export default function OptionChain() {
       return;
     }
 
-    const symbol = buildOptionSymbol(underlyingDisplay, CURRENT_EXPIRY, orderTicket.strike, orderTicket.optionType);
+    const symbol = buildOptionSymbol(underlyingDisplay, expiryDisplay, orderTicket.strike, orderTicket.optionType);
     const payload: Record<string, unknown> = {
       symbol,
       exchange: "NFO",
@@ -191,16 +204,17 @@ export default function OptionChain() {
     return () => { document.body.style.backgroundColor = ""; };
   }, [isDark]);
 
-  // Live spot price feed — repricing the whole chain on every tick.
+  // Header ticker's spot/change% — separate from the option chain's own
+  // spot (chainData.spot), since this endpoint carries day-level change%
+  // that the option-chain stream doesn't.
   useEffect(() => {
     const matchVariants = INDEX_MATCH_VARIANTS[symbolKey] ?? [symbolKey];
     const es = new EventSource(`${BASE_URL}/api/market/indices/stream`);
 
-    es.onopen = () => setConnected(true);
-
     es.onmessage = (event) => {
       try {
         const data: MarketData = JSON.parse(event.data);
+        setMarketStatus(data.market_status);
         const matchedIndex = data.indices.find(i => {
           const normalized = normalizeName(i.name || "");
           return matchVariants.some(v => normalized === v || normalized.includes(v));
@@ -212,14 +226,69 @@ export default function OptionChain() {
       }
     };
 
+    // Per EventSource semantics, the browser auto-reconnects on its own after
+    // a drop — closing here would permanently kill that.
     es.onerror = () => {
-      console.error("[OptionChain] EventSource error - stream closed");
-      setConnected(false);
-      es.close();
+      console.error("[OptionChain] Indices stream connection error — awaiting auto-reconnect");
     };
 
     return () => es.close();
   }, [symbolKey]);
+
+  // The real live option chain. Backend contract:
+  //  - sends the current snapshot immediately on connect
+  //  - a new frame arrives only when data actually changes (event-driven,
+  //    not a fixed poll interval)
+  //  - on a Shoonya disconnect, exactly one frame with
+  //    errors:[{reason:"shoonya_disconnected"}] arrives (last-known strikes
+  //    still included, not wiped) then it goes quiet until reconnected
+  //  - the browser's native EventSource reconnect handles connection drops;
+  //    we must not call es.close() on error or that stops working
+  useEffect(() => {
+    const slug = SUPPORTED_UNDERLYING_SLUGS[symbolKey];
+    if (!slug) {
+      setChainStatus("unavailable");
+      setChainErrorMessage(`Live option chain isn't available for ${indexData.symbol} yet.`);
+      return;
+    }
+
+    setChainStatus("connecting");
+    setChainErrorMessage(null);
+    const es = new EventSource(`${BASE_URL}/api/market/${slug}/optionchain/stream`);
+
+    es.onmessage = (event) => {
+      try {
+        const data: OptionChainResponse = JSON.parse(event.data);
+        const errs = data.errors ?? [];
+        const disconnected = errs.some(e => e.reason === "shoonya_disconnected");
+        const noData = errs.some(e => e.reason === "no_option_data" || e.reason === "no_expiry_available");
+
+        if (disconnected) {
+          setChainStatus("reconnecting");
+          if (Array.isArray(data.strikes) && data.strikes.length > 0) setChainData(data);
+          return;
+        }
+        if (noData) {
+          setChainStatus("unavailable");
+          setChainErrorMessage("No option chain data is available for this expiry right now.");
+          return;
+        }
+
+        setChainData(data);
+        setChainStatus("live");
+        setChainErrorMessage(null);
+      } catch (e) {
+        console.error("[OptionChain] chain stream parse error:", e);
+      }
+    };
+
+    es.onerror = () => {
+      console.error("[OptionChain] chain stream connection error — awaiting auto-reconnect");
+      setChainStatus("reconnecting");
+    };
+
+    return () => es.close();
+  }, [symbolKey, indexData.symbol]);
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: T.bg }}>
@@ -253,10 +322,18 @@ export default function OptionChain() {
                 {indexData.name} Option Chain
               </div>
               <div style={{ fontSize: "11px", color: T.textMuted, display: "flex", alignItems: "center", gap: "6px" }}>
-                NSE · Expiry {CURRENT_EXPIRY}
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: connected ? "#22c55e" : T.textDim }}>
+                NSE · Expiry {expiryDisplay}
+                <span style={{
+                  display: "inline-flex", alignItems: "center", gap: "4px",
+                  color: marketClosed ? T.textDim : chainStatus === "live" ? "#22c55e" : chainStatus === "reconnecting" ? "#f59e0b" : T.textDim,
+                }}>
                   <RefreshCw size={11} />
-                  {connected ? "Live" : "Connecting…"}
+                  {marketClosed
+                    ? "Market closed"
+                    : chainStatus === "live" ? "Live"
+                    : chainStatus === "connecting" ? "Connecting…"
+                    : chainStatus === "reconnecting" ? "Reconnecting…"
+                    : "Unavailable"}
                 </span>
               </div>
             </div>
@@ -281,13 +358,13 @@ export default function OptionChain() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
               <thead>
                 <tr>
-                  <th colSpan={4} style={{ padding: "10px", color: "#22c55e", background: "rgba(34,197,94,0.08)", fontSize: "12px", fontWeight: 700, borderBottom: `1px solid ${T.border}` }}>
+                  <th colSpan={4} style={{ position: "sticky", top: 0, zIndex: 2, padding: "10px", color: "#22c55e", background: "rgba(34,197,94,0.16)", fontSize: "12px", fontWeight: 700, borderBottom: `1px solid ${T.border}` }}>
                     CALLS
                   </th>
-                  <th style={{ padding: "10px", color: T.text, background: T.card, fontSize: "12px", fontWeight: 700, borderBottom: `1px solid ${T.border}` }}>
+                  <th style={{ position: "sticky", top: 0, zIndex: 2, padding: "10px", color: T.text, background: T.cardSolid, fontSize: "12px", fontWeight: 700, borderBottom: `1px solid ${T.border}` }}>
                     STRIKE
                   </th>
-                  <th colSpan={4} style={{ padding: "10px", color: "#ef4444", background: "rgba(239,68,68,0.08)", fontSize: "12px", fontWeight: 700, borderBottom: `1px solid ${T.border}` }}>
+                  <th colSpan={4} style={{ position: "sticky", top: 0, zIndex: 2, padding: "10px", color: "#ef4444", background: "rgba(239,68,68,0.16)", fontSize: "12px", fontWeight: 700, borderBottom: `1px solid ${T.border}` }}>
                     PUTS
                   </th>
                 </tr>
@@ -295,39 +372,57 @@ export default function OptionChain() {
                   <th style={{ padding: "6px 8px", fontWeight: 600, borderBottom: `1px solid ${T.border}` }}>OI</th>
                   <th style={{ padding: "6px 8px", fontWeight: 600, borderBottom: `1px solid ${T.border}` }}>IV%</th>
                   <th style={{ padding: "6px 8px", fontWeight: 600, borderBottom: `1px solid ${T.border}` }}>LTP</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 600, borderBottom: `1px solid ${T.border}` }}>Order</th>
                   <th style={{ padding: "6px 8px", fontWeight: 600, borderBottom: `1px solid ${T.border}` }}></th>
-                  <th style={{ padding: "6px 8px", fontWeight: 600, borderBottom: `1px solid ${T.border}` }}></th>
-                  <th style={{ padding: "6px 8px", fontWeight: 600, borderBottom: `1px solid ${T.border}` }}></th>
+                  <th style={{ padding: "6px 8px", fontWeight: 600, borderBottom: `1px solid ${T.border}` }}>Order</th>
                   <th style={{ padding: "6px 8px", fontWeight: 600, borderBottom: `1px solid ${T.border}` }}>LTP</th>
                   <th style={{ padding: "6px 8px", fontWeight: 600, borderBottom: `1px solid ${T.border}` }}>IV%</th>
                   <th style={{ padding: "6px 8px", fontWeight: 600, borderBottom: `1px solid ${T.border}` }}>OI</th>
                 </tr>
               </thead>
               <tbody>
-                {optionChain.map(({ strike, ce, pe }) => {
+                {strikes.map(({ strike, ce, pe }) => {
                   const isAtm = strike === atmStrike;
                   return (
                     <tr key={strike} style={{ background: isAtm ? "rgba(59,130,246,0.06)" : "transparent" }}>
                       <td style={{ padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {ce.oi.toLocaleString("en-IN")}
+                        {ce ? ce.oi.toLocaleString("en-IN") : "-"}
                       </td>
                       <td style={{ padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {ce.iv.toFixed(1)}
+                        {ce?.iv != null ? (ce.iv * 100).toFixed(1) : "-"}
                       </td>
                       <td style={{ padding: "8px", color: "#22c55e", fontWeight: 700, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        ₹{ce.premium.toFixed(2)}
+                        {ce ? `₹${ce.ltp.toFixed(2)}` : "-"}
                       </td>
                       <td style={{ padding: "6px 4px", borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        <button
-                          onClick={() => openOrderTicket(strike, "CE", "BUY", ce.premium)}
-                          style={{
-                            padding: "4px 10px", fontSize: "10px", fontWeight: 700, borderRadius: "5px",
-                            background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.4)",
-                            color: "#22c55e", cursor: "pointer",
-                          }}
-                        >
-                          BUY
-                        </button>
+                        {ce ? (
+                          <div style={{ display: "flex", gap: "4px", justifyContent: "center" }}>
+                            <button
+                              onClick={() => openOrderTicket(strike, "CE", "BUY", ce.ltp)}
+                              title={`Buy ${underlyingDisplay} ${strike} CE`}
+                              style={{
+                                padding: "4px 8px", fontSize: "10px", fontWeight: 700, borderRadius: "5px",
+                                background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.4)",
+                                color: "#22c55e", cursor: "pointer",
+                              }}
+                            >
+                              Buy
+                            </button>
+                            <button
+                              onClick={() => openOrderTicket(strike, "CE", "SELL", ce.ltp)}
+                              title={`Sell ${underlyingDisplay} ${strike} CE`}
+                              style={{
+                                padding: "4px 8px", fontSize: "10px", fontWeight: 700, borderRadius: "5px",
+                                background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)",
+                                color: "#ef4444", cursor: "pointer",
+                              }}
+                            >
+                              Sell
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ color: T.textDim, fontSize: "10px" }}>No quote</span>
+                        )}
                       </td>
                       <td style={{
                         padding: "8px 12px", color: isAtm ? "#3b82f6" : T.text, fontWeight: 700,
@@ -338,38 +433,77 @@ export default function OptionChain() {
                         {isAtm && <div style={{ fontSize: "8px", color: "#3b82f6", fontWeight: 700 }}>ATM</div>}
                       </td>
                       <td style={{ padding: "6px 4px", borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        <button
-                          onClick={() => openOrderTicket(strike, "PE", "BUY", pe.premium)}
-                          style={{
-                            padding: "4px 10px", fontSize: "10px", fontWeight: 700, borderRadius: "5px",
-                            background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)",
-                            color: "#ef4444", cursor: "pointer",
-                          }}
-                        >
-                          BUY
-                        </button>
+                        {pe ? (
+                          <div style={{ display: "flex", gap: "4px", justifyContent: "center" }}>
+                            <button
+                              onClick={() => openOrderTicket(strike, "PE", "BUY", pe.ltp)}
+                              title={`Buy ${underlyingDisplay} ${strike} PE`}
+                              style={{
+                                padding: "4px 8px", fontSize: "10px", fontWeight: 700, borderRadius: "5px",
+                                background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.4)",
+                                color: "#22c55e", cursor: "pointer",
+                              }}
+                            >
+                              Buy
+                            </button>
+                            <button
+                              onClick={() => openOrderTicket(strike, "PE", "SELL", pe.ltp)}
+                              title={`Sell ${underlyingDisplay} ${strike} PE`}
+                              style={{
+                                padding: "4px 8px", fontSize: "10px", fontWeight: 700, borderRadius: "5px",
+                                background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)",
+                                color: "#ef4444", cursor: "pointer",
+                              }}
+                            >
+                              Sell
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ color: T.textDim, fontSize: "10px" }}>No quote</span>
+                        )}
                       </td>
                       <td style={{ padding: "8px", color: "#ef4444", fontWeight: 700, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        ₹{pe.premium.toFixed(2)}
+                        {pe ? `₹${pe.ltp.toFixed(2)}` : "-"}
                       </td>
                       <td style={{ padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {pe.iv.toFixed(1)}
+                        {pe?.iv != null ? (pe.iv * 100).toFixed(1) : "-"}
                       </td>
                       <td style={{ padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {pe.oi.toLocaleString("en-IN")}
+                        {pe ? pe.oi.toLocaleString("en-IN") : "-"}
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+            {strikes.length === 0 && (
+              <div style={{ padding: "40px 20px", textAlign: "center" }}>
+                <div style={{ fontSize: "14px", fontWeight: 700, color: T.textMuted, marginBottom: "6px" }}>
+                  {marketClosed
+                    ? "Market is closed"
+                    : chainStatus === "unavailable"
+                    ? (chainErrorMessage ?? "Live option chain isn't available for this underlying.")
+                    : chainStatus === "connecting"
+                    ? "Connecting to the live option chain…"
+                    : "Waiting for option chain data…"}
+                </div>
+                <div style={{ fontSize: "12px", color: T.textDim }}>
+                  {marketClosed
+                    ? "The option chain is a live-only feed and has no data outside NSE trading hours (09:15–15:30 IST, Mon–Fri) — it'll resume automatically when the market reopens."
+                    : chainStatus === "reconnecting"
+                    ? "Reconnecting to the live feed — this updates automatically."
+                    : null}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* ── Order Ticket Modal ── */}
         {orderTicket && (() => {
-          const quote = optionChain.find(o => o.strike === orderTicket.strike);
-          const premium = quote ? (orderTicket.optionType === "CE" ? quote.ce.premium : quote.pe.premium) : orderPrice;
+          const quote = strikes.find(o => o.strike === orderTicket.strike);
+          const leg = quote ? (orderTicket.optionType === "CE" ? quote.ce : quote.pe) : null;
+          const premium = leg ? leg.ltp : orderPrice;
           const effectivePrice = orderType === "MARKET" ? premium : orderPrice;
           const totalValue = effectivePrice * orderQtyLots * lotSize;
           const isBuy = orderTicket.side === "BUY";
@@ -399,7 +533,7 @@ export default function OptionChain() {
                     <div style={{ fontSize: "15px", fontWeight: 700, color: T.text }}>
                       {underlyingDisplay} {orderTicket.strike} {orderTicket.optionType}
                     </div>
-                    <div style={{ fontSize: "11px", color: T.textMuted }}>Expiry: {CURRENT_EXPIRY} · NSE</div>
+                    <div style={{ fontSize: "11px", color: T.textMuted }}>Expiry: {expiryDisplay} · NSE</div>
                   </div>
                   <button
                     onClick={closeOrderTicket}
@@ -498,7 +632,7 @@ export default function OptionChain() {
                           <span style={{ fontWeight: 700, color: T.text }}>
                             {underlyingDisplay} {orderTicket.strike} {orderTicket.optionType}
                           </span>
-                          {" "}{orderType === "MARKET" ? "at market price" : <>at ₹{orderPrice.toFixed(2)} per unit</>}, expiring {CURRENT_EXPIRY}.
+                          {" "}{orderType === "MARKET" ? "at market price" : <>at ₹{orderPrice.toFixed(2)} per unit</>}, expiring {expiryDisplay}.
                         </div>
 
                         <div>

@@ -76,7 +76,57 @@ export const STRIKE_STEP_MAP: Record<string, number> = {
 };
 export const DEFAULT_STRIKE_STEP = 50;
 
+// Only used as a placeholder before the real option-chain stream's first
+// frame arrives (which always carries the actual expiry) — never trust this
+// for anything beyond that brief initial render.
 export const CURRENT_EXPIRY = "07 Jul 2026";
+
+// Only these three underlyings have live-data endpoints deployed (candles and
+// now the option chain). Others (midcpnifty, sensex, indiavix) fall back to
+// an honest "not available" state rather than fake data.
+export const SUPPORTED_UNDERLYING_SLUGS: Record<string, string> = {
+  nifty: "nifty", nifty50: "nifty",
+  banknifty: "banknifty",
+  finnifty: "finnifty",
+};
+
+export interface OptionLeg {
+  ltp: number;
+  bid: number;
+  ask: number;
+  oi: number;
+  oi_change: number;
+  volume: number;
+  iv: number | null; // fraction, e.g. 0.337 = 33.7% — not a percentage
+}
+
+export interface OptionStrikeRow {
+  strike: number;
+  ce: OptionLeg | null;
+  pe: OptionLeg | null;
+}
+
+export interface OptionChainErrorEntry {
+  reason: string;
+}
+
+export interface OptionChainResponse {
+  symbol: string;
+  exchange: string;
+  expiry: string; // YYYY-MM-DD
+  spot: number;
+  strikes: OptionStrikeRow[];
+  errors: OptionChainErrorEntry[];
+  last_updated: string;
+}
+
+// "2026-07-07" -> "07 Jul 2026", matching the "DD Mon YYYY" shape expiryToSymbolCode expects.
+export function isoExpiryToDisplay(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthName = months[parseInt(m, 10) - 1] ?? m;
+  return `${d} ${monthName} ${y}`;
+}
 
 // "07 Jul 2026" -> "07JUL26", matching NSE-style contract symbol suffixes.
 export function expiryToSymbolCode(expiry: string): string {
@@ -105,47 +155,3 @@ export function extractErrorMessage(body: any, fallback: string): string {
   return fallback;
 }
 
-export interface OptionQuote {
-  strike: number;
-  ce: { premium: number; iv: number; oi: number };
-  pe: { premium: number; iv: number; oi: number };
-}
-
-// Deterministic pseudo-random in [0,1), seeded by an integer — used so option
-// chain premiums stay stable across re-renders instead of jumping every time
-// React repaints (which plain Math.random() in JSX was doing before).
-export function seededRandom(seed: number): number {
-  const x = Math.sin(seed * 12.9898) * 43758.5453;
-  return x - Math.floor(x);
-}
-
-// Builds a synthetic option chain centered on the live spot price. Premium =
-// intrinsic value + a stable pseudo-random time-value component. This is a
-// simulator, not a real pricing model (no Black-Scholes/greeks) — good enough
-// to exercise the order-ticket flow before the backend order book exists.
-export function buildOptionChain(spot: number, strikeStep: number, count = 9): OptionQuote[] {
-  if (!spot || isNaN(spot)) return [];
-  const center = Math.round(spot / strikeStep) * strikeStep;
-  const half = Math.floor(count / 2);
-  const strikes: number[] = [];
-  for (let i = -half; i <= half; i++) strikes.push(center + i * strikeStep);
-
-  return strikes.map(strike => {
-    const callIntrinsic = Math.max(spot - strike, 0);
-    const putIntrinsic = Math.max(strike - spot, 0);
-    const timeValue = 20 + seededRandom(strike) * 60;
-    return {
-      strike,
-      ce: {
-        premium: Math.max(callIntrinsic + timeValue, 0.5),
-        iv: 15 + seededRandom(strike + 1) * 20,
-        oi: Math.floor(10000 + seededRandom(strike + 2) * 50000),
-      },
-      pe: {
-        premium: Math.max(putIntrinsic + timeValue, 0.5),
-        iv: 15 + seededRandom(strike + 3) * 20,
-        oi: Math.floor(10000 + seededRandom(strike + 4) * 50000),
-      },
-    };
-  });
-}
