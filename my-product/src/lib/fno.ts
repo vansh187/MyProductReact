@@ -64,6 +64,7 @@ export const LOT_SIZE_MAP: Record<string, number> = {
   banknifty: 35,
   finnifty: 65,
   midcpnifty: 140,
+  sensex: 10,
 };
 export const DEFAULT_LOT_SIZE = 50;
 
@@ -81,13 +82,14 @@ export const DEFAULT_STRIKE_STEP = 50;
 // for anything beyond that brief initial render.
 export const CURRENT_EXPIRY = "07 Jul 2026";
 
-// Only these three underlyings have live-data endpoints deployed (candles and
-// now the option chain). Others (midcpnifty, sensex, indiavix) fall back to
-// an honest "not available" state rather than fake data.
+// Only these underlyings have live-data endpoints deployed (candles and
+// option chain). Others (midcpnifty, indiavix) fall back to an honest
+// "not available" state rather than fake data.
 export const SUPPORTED_UNDERLYING_SLUGS: Record<string, string> = {
   nifty: "nifty", nifty50: "nifty",
   banknifty: "banknifty",
   finnifty: "finnifty",
+  sensex: "sensex",
 };
 
 export interface OptionLeg {
