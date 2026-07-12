@@ -386,13 +386,13 @@ export default function OptionChain() {
                   return (
                     <tr key={strike} style={{ background: isAtm ? "rgba(59,130,246,0.06)" : "transparent" }}>
                       <td style={{ padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {ce ? ce.oi.toLocaleString("en-IN") : "-"}
+                        {ce?.oi != null ? ce.oi.toLocaleString("en-IN") : "-"}
                       </td>
                       <td style={{ padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
                         {ce?.iv != null ? (ce.iv * 100).toFixed(1) : "-"}
                       </td>
                       <td style={{ padding: "8px", color: "#22c55e", fontWeight: 700, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {ce ? `₹${ce.ltp.toFixed(2)}` : "-"}
+                        {ce?.ltp != null ? `₹${ce.ltp.toFixed(2)}` : "-"}
                       </td>
                       <td style={{ padding: "6px 4px", borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
                         {ce ? (
@@ -463,13 +463,13 @@ export default function OptionChain() {
                         )}
                       </td>
                       <td style={{ padding: "8px", color: "#ef4444", fontWeight: 700, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {pe ? `₹${pe.ltp.toFixed(2)}` : "-"}
+                        {pe?.ltp != null ? `₹${pe.ltp.toFixed(2)}` : "-"}
                       </td>
                       <td style={{ padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
                         {pe?.iv != null ? (pe.iv * 100).toFixed(1) : "-"}
                       </td>
                       <td style={{ padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {pe ? pe.oi.toLocaleString("en-IN") : "-"}
+                        {pe?.oi != null ? pe.oi.toLocaleString("en-IN") : "-"}
                       </td>
                     </tr>
                   );
