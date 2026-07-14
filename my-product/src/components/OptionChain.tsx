@@ -102,6 +102,7 @@ export default function OptionChain() {
     orderId: number;
     status: string;
     message: string;
+    brokerOrderId?: string;
     matchedQty?: number;
     remainingQty?: number;
     tradeId?: number;
@@ -147,7 +148,34 @@ export default function OptionChain() {
     setOrderError(null);
     setIsSubmittingOrder(true);
     try {
-      const res = await fetch(`${BASE_URL}/orders`, {
+      // Live production trading: real order placed on the Shoonya broker
+      // account (F&O only), not the internal simulator. Replaces the old
+      // simulated flow below, kept for reference:
+      //
+      // const res = await fetch(`${BASE_URL}/orders`, {
+      //   method: "POST",
+      //   headers: {
+      //     "Content-Type": "application/json",
+      //     Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+      //   },
+      //   body: JSON.stringify(payload),
+      // });
+      // const body = await res.json();
+      // if (!res.ok || !body?.success) {
+      //   setOrderError(extractErrorMessage(body, "Order could not be placed. Please try again."));
+      //   return;
+      // }
+      // const exec = body.execution ?? {};
+      // setOrderResult({
+      //   orderId: body.order_id,
+      //   status: exec.status ?? "PENDING",
+      //   message: exec.message ?? "Order submitted",
+      //   matchedQty: exec.matched_quantity,
+      //   remainingQty: exec.remaining_quantity,
+      //   tradeId: exec.trade_id,
+      // });
+
+      const res = await fetch(`${BASE_URL}/createLiveOrder`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -155,6 +183,22 @@ export default function OptionChain() {
         },
         body: JSON.stringify(payload),
       });
+
+      // 202 means the broker call timed out / gave an unexpected response —
+      // the order may have actually gone through. This is NOT a failure, but
+      // resubmitting blindly risks placing a duplicate real order, so we
+      // surface it as a distinct "uncertain" result (no retry action) rather
+      // than routing it through the error banner, which stays editable.
+      if (res.status === 202) {
+        const body = await res.json().catch(() => ({} as any));
+        setOrderResult({
+          orderId: 0,
+          status: "UNCERTAIN",
+          message: extractErrorMessage(body, "Order was submitted but broker confirmation timed out — check your order book before retrying."),
+        });
+        return;
+      }
+
       const body = await res.json();
 
       if (!res.ok || !body?.success) {
@@ -162,14 +206,13 @@ export default function OptionChain() {
         return;
       }
 
-      const exec = body.execution ?? {};
       setOrderResult({
         orderId: body.order_id,
-        status: exec.status ?? "PENDING",
-        message: exec.message ?? "Order submitted",
-        matchedQty: exec.matched_quantity,
-        remainingQty: exec.remaining_quantity,
-        tradeId: exec.trade_id,
+        brokerOrderId: body.broker_order_id,
+        status: body.status ?? "PENDING",
+        message: body.broker_order_id
+          ? `Live order placed on the exchange (broker ref ${body.broker_order_id}).`
+          : "Order submitted.",
       });
     } catch (e) {
       console.error("[OptionChain] order placement failed:", e);
@@ -553,23 +596,41 @@ export default function OptionChain() {
                     <div style={{
                       width: "48px", height: "48px", borderRadius: "50%",
                       background: orderResult.status === "EXECUTED" ? "rgba(34,197,94,0.15)"
-                        : orderResult.status === "PARTIALLY_EXECUTED" ? "rgba(59,130,246,0.15)" : "rgba(245,158,11,0.15)",
+                        : orderResult.status === "PARTIALLY_EXECUTED" ? "rgba(59,130,246,0.15)"
+                        : orderResult.status === "UNCERTAIN" ? "rgba(245,158,11,0.15)" : "rgba(245,158,11,0.15)",
                       display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px",
                     }}>
-                      {orderResult.status === "EXECUTED" ? "✓" : orderResult.status === "PARTIALLY_EXECUTED" ? "◐" : "⏳"}
+                      {orderResult.status === "EXECUTED" ? "✓"
+                        : orderResult.status === "PARTIALLY_EXECUTED" ? "◐"
+                        : orderResult.status === "UNCERTAIN" ? "⚠"
+                        : "⏳"}
                     </div>
                     <div style={{ fontSize: "15px", fontWeight: 700, color: T.text, textAlign: "center" }}>
                       {orderResult.status === "EXECUTED" && "Order Executed"}
                       {orderResult.status === "PARTIALLY_EXECUTED" && "Order Partially Executed"}
-                      {orderResult.status === "PENDING" && "Order Placed — Pending"}
+                      {orderResult.status === "PENDING" && "Live Order Placed"}
+                      {orderResult.status === "UNCERTAIN" && "Order Status Uncertain"}
                     </div>
                     <div style={{ fontSize: "12px", color: T.textMuted, textAlign: "center" }}>{orderResult.message}</div>
+                    {orderResult.status === "UNCERTAIN" && (
+                      <div style={{
+                        fontSize: "11px", color: "#f59e0b", textAlign: "center", background: "rgba(245,158,11,0.08)",
+                        border: "1px solid rgba(245,158,11,0.25)", borderRadius: "8px", padding: "8px 10px",
+                      }}>
+                        Don't resubmit — check your order book before placing this order again.
+                      </div>
+                    )}
                     <div style={{
                       width: "100%", background: T.card, border: `1px solid ${T.border}`, borderRadius: "10px",
                       padding: "12px", fontSize: "12px", color: T.textBody, display: "flex", flexDirection: "column", gap: "6px",
                     }}>
-                      <div style={{ display: "flex", justifyContent: "space-between" }}><span>Order ID</span><span style={{ fontWeight: 700, color: T.text }}>{orderResult.orderId}</span></div>
+                      {orderResult.orderId > 0 && (
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Order ID</span><span style={{ fontWeight: 700, color: T.text }}>{orderResult.orderId}</span></div>
+                      )}
                       <div style={{ display: "flex", justifyContent: "space-between" }}><span>{orderTicket.side} · {underlyingDisplay} {orderTicket.strike} {orderTicket.optionType}</span></div>
+                      {orderResult.brokerOrderId != null && (
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Broker Order ID</span><span style={{ fontWeight: 700, color: T.text }}>{orderResult.brokerOrderId}</span></div>
+                      )}
                       {orderResult.tradeId != null && (
                         <div style={{ display: "flex", justifyContent: "space-between" }}><span>Trade ID</span><span style={{ fontWeight: 700, color: T.text }}>{orderResult.tradeId}</span></div>
                       )}

@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "./header";
 import { Footer } from "./footer";
-import { BarChart2, TrendingUp, Activity, Layers, Terminal, List, Link2 } from "lucide-react";
+import { BarChart2, TrendingUp, Activity, Layers, Terminal, List, Link2, X } from "lucide-react";
+import { isoExpiryToDisplay, SUPPORTED_UNDERLYING_SLUGS } from "../lib/fno";
 
 const BASE_URL = "https://api.primepiptrade.com";
 
@@ -57,6 +58,7 @@ interface Order {
   product_type: string;
   validity: string;
   status: string;
+  broker_order_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -75,6 +77,52 @@ function extractErrorMessage(body: any, fallback: string): string {
       .join("; ");
   }
   return fallback;
+}
+
+interface Position {
+  tsym: string;
+  broker: string;
+  token: string;
+  exchange: string;
+  underlying: string | null;
+  expiry: string | null;
+  strike: number | null;
+  option_type: "CE" | "PE" | null;
+  lot_size: number;
+  product_type: string;
+  netqty: number;
+  netavgprc: number;
+  buyqty: number;
+  sellqty: number;
+  buyavgprc: number;
+  sellavgprc: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  total_pnl: number;
+  lp: number;
+  last_tick_ts: number;
+  status: string;
+  created_at: number;
+  updated_at: number;
+}
+
+function fmtSigned(n: unknown): string {
+  if (n == null || typeof n !== "number" || isNaN(n)) return "—";
+  const sign = n > 0 ? "+" : n < 0 ? "−" : "";
+  return `${sign}₹${Math.abs(n).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+}
+
+function pnlColor(n: unknown): string {
+  if (n == null || typeof n !== "number" || isNaN(n)) return "#8b949e";
+  return n > 0 ? "#22c55e" : n < 0 ? "#ef4444" : "#8b949e";
+}
+
+// last_tick_ts is a Unix timestamp (seconds); anything older than a minute
+// means the live feed hasn't ticked recently (not necessarily an error —
+// could just be a quiet strike), so label it "Delayed" instead of "Live".
+function isTickFresh(lastTickTs: number): boolean {
+  if (!lastTickTs) return false;
+  return Date.now() / 1000 - lastTickTs < 60;
 }
 
 function statusColor(status: string): string {
@@ -186,6 +234,20 @@ export default function ExploreFutureOptions() {
   const [activeAsset, setActiveAsset] = useState<string>("Equity");
   const T = isDark ? DARK : LIGHT;
 
+  // Moving the mouse from the tab pill down into the hover card crosses the
+  // gap between them — an instant onMouseLeave there would unmount the card
+  // before the cursor ever reaches it, so hide on a short delay instead
+  // (cancelled if the cursor re-enters the pill or the card in time).
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showHoverCard = (key: string) => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    setHoveredIndex(key);
+  };
+  const hideHoverCard = () => {
+    hoverTimer.current = setTimeout(() => setHoveredIndex(null), 150);
+  };
+  useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); }, []);
+
   const [marketData, setMarketData] = useState<MarketData | null>(() => {
     try {
       const cached = localStorage.getItem("cachedMarketData");
@@ -291,24 +353,135 @@ export default function ExploreFutureOptions() {
     }
   }
 
-  // Positions derived from filled orders — the backend has no dedicated
-  // positions endpoint yet, so this is an approximation based on each
-  // order's full quantity (the order-list response doesn't expose
-  // matched_quantity for partial fills, only the create-order response does).
-  const positions = useMemo(() => {
-    const filled = orders.filter(o => o.status === "EXECUTED" || o.status === "PARTIALLY_EXECUTED");
-    const bySymbol: Record<string, { symbol: string; exchange: string; netQty: number; buyValue: number; sellValue: number; buyQty: number; sellQty: number }> = {};
-    filled.forEach(o => {
-      if (!bySymbol[o.symbol]) {
-        bySymbol[o.symbol] = { symbol: o.symbol, exchange: o.exchange, netQty: 0, buyValue: 0, sellValue: 0, buyQty: 0, sellQty: 0 };
+  // Real positions — created/updated the instant a fill happens (backend
+  // writes to the live cache in the same transaction as the trade fill), so
+  // polling this endpoint on a short interval while the tab is open is
+  // enough to track live P&L without a dedicated streaming endpoint.
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [positionsLoaded, setPositionsLoaded] = useState(false);
+  const [positionsError, setPositionsError] = useState<string | null>(null);
+  const [confirmingKey, setConfirmingKey] = useState<string | null>(null);
+  const [exitingKey, setExitingKey] = useState<string | null>(null);
+
+  const fetchPositions = useCallback(() => {
+    return fetch(`${BASE_URL}/getPositionsForLoggedInUser`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
+    })
+      .then(async r => ({ ok: r.ok, body: await r.json() }))
+      .then(({ ok, body }) => {
+        if (!ok || !body?.success) {
+          setPositionsError(extractErrorMessage(body, "Failed to load positions."));
+          return;
+        }
+        setPositions(Array.isArray(body.positions) ? body.positions : []);
+        setPositionsError(null);
+      })
+      .catch(() => setPositionsError("Network error while loading positions."))
+      .finally(() => setPositionsLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    if (activeSection !== "Positions") return;
+    let cancelled = false;
+    const tick = () => { if (!cancelled) fetchPositions(); };
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [activeSection, fetchPositions]);
+
+  async function exitPosition(p: Position) {
+    const key = p.token || p.tsym;
+    setExitingKey(key);
+    try {
+      const side: "BUY" | "SELL" = p.netqty > 0 ? "SELL" : "BUY";
+      // Live production trading: exiting a real F&O position must place a
+      // real broker order too, not a simulated one — otherwise the position
+      // would still be open at the broker even though it looks closed here.
+      const res = await fetch(`${BASE_URL}/createLiveOrder`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+        },
+        body: JSON.stringify({
+          symbol: p.tsym,
+          exchange: p.exchange,
+          side,
+          quantity: Math.abs(p.netqty),
+          order_type: "MARKET",
+          product_type: p.product_type,
+          validity: "DAY",
+          client_order_id: `EXIT-${Date.now()}`,
+        }),
+      });
+
+      // 202 = broker confirmation timed out, order may have gone through —
+      // not a failure, but must not be treated as "safe to retry."
+      if (res.status === 202) {
+        const body = await res.json().catch(() => ({} as any));
+        setPositionsError(extractErrorMessage(body, "Exit order submitted but broker confirmation timed out — check your order book before retrying."));
+        return;
       }
-      const p = bySymbol[o.symbol];
-      const value = (o.price ?? 0) * o.quantity;
-      if (o.side === "BUY") { p.netQty += o.quantity; p.buyQty += o.quantity; p.buyValue += value; }
-      else { p.netQty -= o.quantity; p.sellQty += o.quantity; p.sellValue += value; }
+
+      const body = await res.json();
+      if (!res.ok || !body?.success) {
+        setPositionsError(extractErrorMessage(body, "Could not exit position. Please try again."));
+        return;
+      }
+      setPositionsError(null);
+      await fetchPositions();
+    } catch {
+      setPositionsError("Network error — position was not exited. Please check your connection and try again.");
+    } finally {
+      setExitingKey(null);
+      setConfirmingKey(null);
+    }
+  }
+
+  function openIndex(idx: typeof INDICES[number], destination: "chain" | "terminal") {
+    setHoveredIndex(null);
+    const live = findApiIndex(apiIndices, idx.matchNames);
+    navigate(destination === "chain" ? "/terminal/fno/chain" : "/terminal/fno", {
+      state: {
+        indexData: {
+          name: idx.label,
+          symbol: idx.symbol,
+          value: live?.value ?? 0,
+          change: live?.change ?? 0,
+          change_pct: live?.change_pct ?? 0,
+        },
+      },
     });
-    return Object.values(bySymbol).filter(p => p.netQty !== 0);
-  }, [orders]);
+  }
+
+  const totalPnl = useMemo(
+    () => positions.reduce((sum, p) => sum + (typeof p.total_pnl === "number" ? p.total_pnl : 0), 0),
+    [positions],
+  );
+
+  // A position is only clickable through to the live option chain if its
+  // underlying is both resolved (backend can leave it null for unresolvable
+  // symbols) and actually has a live chain stream deployed.
+  function isPositionOpenable(p: Position): boolean {
+    return !!p.underlying && !!SUPPORTED_UNDERLYING_SLUGS[normalizeName(p.underlying)];
+  }
+
+  function openPositionInChain(p: Position) {
+    if (!isPositionOpenable(p)) return;
+    const cfg = INDICES.find(idx => idx.symbol === p.underlying);
+    const live = cfg ? findApiIndex(apiIndices, cfg.matchNames) : undefined;
+    navigate("/terminal/fno/chain", {
+      state: {
+        indexData: {
+          name: cfg?.label ?? p.underlying,
+          symbol: p.underlying,
+          value: live?.value ?? p.lp ?? 0,
+          change: live?.change ?? 0,
+          change_pct: live?.change_pct ?? 0,
+        },
+      },
+    });
+  }
 
   useEffect(() => {
     document.body.style.overflow = "auto";
@@ -399,8 +572,8 @@ export default function ExploreFutureOptions() {
                 <div
                   key={idx.key}
                   style={{ position: "relative", flex: 1 }}
-                  onMouseEnter={() => setHoveredIndex(idx.key)}
-                  onMouseLeave={() => setHoveredIndex(null)}
+                  onMouseEnter={() => showHoverCard(idx.key)}
+                  onMouseLeave={hideHoverCard}
                 >
                   {/* Index tab pill */}
                   <div style={{
@@ -431,6 +604,7 @@ export default function ExploreFutureOptions() {
                     }}>
                       {/* Option Chain */}
                       <button
+                        onClick={() => openIndex(idx, "chain")}
                         style={{
                           width: "100%", display: "flex", alignItems: "center", gap: "12px",
                           padding: "10px 12px", borderRadius: "10px", border: "none",
@@ -450,6 +624,7 @@ export default function ExploreFutureOptions() {
 
                       {/* Terminal */}
                       <button
+                        onClick={() => openIndex(idx, "terminal")}
                         style={{
                           width: "100%", display: "flex", alignItems: "center", gap: "12px",
                           padding: "10px 12px", borderRadius: "10px", border: "none",
@@ -634,8 +809,18 @@ export default function ExploreFutureOptions() {
                         {o.side}
                       </span>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: "13px", fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {o.symbol}
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span style={{ fontSize: "13px", fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {o.symbol}
+                          </span>
+                          {o.broker_order_id != null && (
+                            <span style={{
+                              fontSize: "9px", fontWeight: 700, padding: "2px 6px", borderRadius: "100px",
+                              color: "#22c55e", background: "rgba(34,197,94,0.12)", letterSpacing: "0.03em", flexShrink: 0,
+                            }}>
+                              LIVE
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontSize: "11px", color: T.textDim }}>
                           {o.exchange} · {o.order_type} · {o.product_type} · Qty {o.quantity}
@@ -654,7 +839,7 @@ export default function ExploreFutureOptions() {
                       <div style={{ fontSize: "10px", color: T.textDim, marginTop: "4px" }}>{fmtDateTime(o.created_at)}</div>
                     </div>
 
-                    {o.status === "PENDING" && (
+                    {o.status === "PENDING" && o.broker_order_id == null && (
                       <button
                         onClick={() => cancelOrder(o.id)}
                         disabled={cancellingId === o.id}
@@ -677,42 +862,169 @@ export default function ExploreFutureOptions() {
         {/* ── Positions tab ── */}
         {activeSection === "Positions" && (
           <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
-            <div style={{ fontSize: "17px", fontWeight: 700, color: T.text, marginBottom: "4px" }}>Positions</div>
-            <div style={{ fontSize: "12px", color: T.textDim, marginBottom: "16px" }}>
-              Derived from executed orders · approximate until the backend exposes a dedicated positions endpoint
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
+              <div>
+                <div style={{ fontSize: "17px", fontWeight: 700, color: T.text, marginBottom: "4px" }}>Positions</div>
+                <div style={{ fontSize: "12px", color: T.textDim }}>
+                  {positions.length > 0 ? `${positions.length} open position${positions.length !== 1 ? "s" : ""} · updates live` : "Live F&O positions from your executed orders"}
+                </div>
+              </div>
+
+              {positions.length > 0 && (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: "10px",
+                  padding: "10px 16px", borderRadius: "12px",
+                  background: T.card, border: `1px solid ${T.border}`,
+                }}>
+                  <span style={{ fontSize: "11px", color: T.textMuted, fontWeight: 600 }}>Total P&L</span>
+                  <span style={{ fontSize: "16px", fontWeight: 700, color: pnlColor(totalPnl) }}>
+                    {fmtSigned(totalPnl)}
+                  </span>
+                </div>
+              )}
             </div>
 
-            {positions.length === 0 ? (
+            {positionsError && (
+              <div style={{
+                fontSize: "13px", color: "#ef4444", background: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.25)", borderRadius: "8px", padding: "10px 14px", marginBottom: "16px",
+              }}>
+                {positionsError}
+              </div>
+            )}
+
+            {!positionsLoaded ? (
+              <div style={{ fontSize: "13px", color: T.textMuted, textAlign: "center", padding: "40px" }}>Loading positions…</div>
+            ) : positions.length === 0 ? (
               <div style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 minHeight: "160px", background: T.card, border: `1px solid ${T.border}`,
                 borderRadius: "16px", fontSize: "13px", color: T.textMuted,
               }}>
-                No open positions.
+                No open positions. Buy or sell an option from the terminal to open one.
               </div>
             ) : (
               <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: "16px", overflow: "hidden" }}>
                 {positions.map((p, i) => {
-                  const avgPrice = p.netQty > 0
-                    ? p.buyValue / (p.buyQty || 1)
-                    : p.sellValue / (p.sellQty || 1);
+                  const key = p.token || p.tsym;
+                  const isLong = p.netqty > 0;
+                  const sideColor = isLong ? "#22c55e" : "#ef4444";
+                  const lots = p.lot_size ? Math.abs(p.netqty) / p.lot_size : null;
+                  const fresh = isTickFresh(p.last_tick_ts);
+                  const isConfirming = confirmingKey === key;
+                  const isExiting = exitingKey === key;
+                  const openable = isPositionOpenable(p);
+
                   return (
                     <div
-                      key={p.symbol}
+                      key={key}
+                      onClick={() => openPositionInChain(p)}
+                      title={openable ? `Open ${p.underlying} option chain` : "Live chain isn't available for this underlying"}
                       style={{
                         display: "flex", alignItems: "center", justifyContent: "space-between",
                         padding: "14px 18px", borderBottom: i < positions.length - 1 ? `1px solid ${T.border}` : "none",
+                        gap: "16px", flexWrap: "wrap",
+                        cursor: openable ? "pointer" : "default",
+                        transition: "background 0.15s",
                       }}
+                      onMouseEnter={e => { if (openable) (e.currentTarget as HTMLDivElement).style.background = T.tabHover; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
                     >
-                      <div>
-                        <div style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>{p.symbol}</div>
-                        <div style={{ fontSize: "11px", color: T.textDim }}>{p.exchange}</div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: "13px", fontWeight: 700, color: p.netQty > 0 ? "#22c55e" : "#ef4444" }}>
-                          {p.netQty > 0 ? "LONG" : "SHORT"} {Math.abs(p.netQty)}
+                      {/* Instrument */}
+                      <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{
+                            fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "100px",
+                            color: sideColor, background: `${sideColor}1a`, flexShrink: 0,
+                          }}>
+                            {isLong ? "LONG" : "SHORT"}
+                          </span>
+                          <span style={{ fontSize: "13px", fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {p.tsym}
+                          </span>
                         </div>
-                        <div style={{ fontSize: "11px", color: T.textDim }}>Avg ₹{fmt(avgPrice)}</div>
+                        <div style={{ fontSize: "11px", color: T.textDim, marginTop: "4px" }}>
+                          {p.exchange}
+                          {p.underlying && ` · ${p.underlying}`}
+                          {p.option_type && ` · ${p.option_type}`}
+                          {p.strike != null && ` ${fmt(p.strike)}`}
+                          {p.expiry && ` · Exp ${isoExpiryToDisplay(p.expiry)}`}
+                          {` · ${p.product_type}`}
+                        </div>
+                      </div>
+
+                      {/* Qty / Avg */}
+                      <div style={{ textAlign: "right", flex: "0 0 auto" }}>
+                        <div style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>
+                          {Math.abs(p.netqty)} qty{lots != null && ` (${lots} lot${lots !== 1 ? "s" : ""})`}
+                        </div>
+                        <div style={{ fontSize: "11px", color: T.textDim }}>Avg ₹{fmt(p.netavgprc)}</div>
+                      </div>
+
+                      {/* LTP */}
+                      <div style={{ textAlign: "right", flex: "0 0 auto" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "5px", justifyContent: "flex-end" }}>
+                          <span style={{
+                            width: "6px", height: "6px", borderRadius: "50%",
+                            background: fresh ? "#22c55e" : "#f59e0b", flexShrink: 0,
+                          }} />
+                          <span style={{ fontSize: "13px", fontWeight: 700, color: T.text }}>₹{fmt(p.lp)}</span>
+                        </div>
+                        <div style={{ fontSize: "10px", color: T.textDim }}>{fresh ? "Live LTP" : "Delayed"}</div>
+                      </div>
+
+                      {/* P&L */}
+                      <div style={{ textAlign: "right", flex: "0 0 auto" }}>
+                        <div style={{ fontSize: "13px", fontWeight: 700, color: pnlColor(p.total_pnl) }}>
+                          {fmtSigned(p.total_pnl)}
+                        </div>
+                        <div style={{ fontSize: "10px", color: T.textDim }}>
+                          Unrl {fmtSigned(p.unrealized_pnl)}
+                        </div>
+                      </div>
+
+                      {/* Exit */}
+                      <div
+                        style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: "6px" }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        {isConfirming ? (
+                          <>
+                            <button
+                              onClick={() => exitPosition(p)}
+                              disabled={isExiting}
+                              style={{
+                                fontSize: "11px", fontWeight: 700, padding: "7px 14px", borderRadius: "8px",
+                                background: "#ef4444", border: "none", color: "#fff",
+                                cursor: isExiting ? "not-allowed" : "pointer", opacity: isExiting ? 0.7 : 1,
+                              }}
+                            >
+                              {isExiting ? "Exiting…" : "Confirm Exit"}
+                            </button>
+                            <button
+                              onClick={() => setConfirmingKey(null)}
+                              disabled={isExiting}
+                              style={{
+                                width: "28px", height: "28px", borderRadius: "8px",
+                                background: "transparent", border: `1px solid ${T.border}`, color: T.textMuted,
+                                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                              }}
+                            >
+                              <X style={{ width: "13px", height: "13px" }} />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmingKey(key)}
+                            style={{
+                              fontSize: "11px", fontWeight: 600, padding: "7px 14px", borderRadius: "8px",
+                              background: "transparent", border: `1px solid ${T.border}`, color: T.textMuted,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Exit
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
