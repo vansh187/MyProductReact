@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useId, type ReactNode, type M
 import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "./header";
 import { Footer } from "./footer";
+import { ErrorBoundary } from "./ErrorBoundary";
 import {
   Wallet, IndianRupee, TrendingUp, TrendingDown, Activity,
   RefreshCw, Briefcase, Layers, LayoutDashboard, PieChart,
@@ -153,6 +154,33 @@ function EmptyCard({ children }: { children: ReactNode }) {
       minHeight: "140px", padding: "24px", borderRadius: "16px", fontSize: "13px",
     }}>
       {children}
+    </div>
+  );
+}
+
+// Fallback rendered by a section-scoped ErrorBoundary — keeps the crash
+// contained to one widget so the tab bar, Header/Footer, and sibling
+// sections (which may hold perfectly good data) stay usable.
+function SectionErrorFallback({ error, onRetry, T }: { error: Error; onRetry: () => void; T: typeof DARK }) {
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "10px",
+      minHeight: "140px", padding: "24px", borderRadius: "16px", textAlign: "center",
+      background: T.card, border: "1px solid rgba(239,68,68,0.25)", marginBottom: "24px",
+    }}>
+      <div style={{ fontSize: "13px", color: "#ef4444", fontWeight: 700 }}>Something went wrong loading this section</div>
+      <div style={{ fontSize: "12px", color: T.textMuted, maxWidth: "380px" }}>
+        {error.message || "An unexpected error occurred while rendering this widget."}
+      </div>
+      <button
+        onClick={onRetry}
+        style={{
+          padding: "7px 16px", borderRadius: "8px", background: "rgba(239,68,68,0.12)",
+          border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", fontSize: "12px", fontWeight: 700, cursor: "pointer",
+        }}
+      >
+        Retry
+      </button>
     </div>
   );
 }
@@ -704,99 +732,117 @@ export default function OverallDashboard() {
             </div>
           ) : (
             <>
-              <SummaryTiles summary={summary} loading={summaryLoading} error={summaryError} bucket={bucket!} T={T} />
+              <ErrorBoundary
+                fallback={(err, reset) => (
+                  <SectionErrorFallback T={T} error={err} onRetry={async () => { if (bucket) await fetchSummary(bucket); await fetchOverview(); reset(); }} />
+                )}
+              >
+                <SummaryTiles summary={summary} loading={summaryLoading} error={summaryError} bucket={bucket!} T={T} />
 
-              {activeTab === "Overall" && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "14px", marginBottom: "24px" }}>
-                  {overviewError && <div style={{ flex: "1 1 100%" }}><ErrorBanner message={overviewError} /></div>}
-                  {[
-                    { label: "Total Orders", value: overview?.orders.total_orders, sub: overview ? `${overview.orders.executed_orders} executed · ${overview.orders.pending_orders} pending` : undefined },
-                    { label: "Total Trades", value: overview?.trades.total_trades, sub: overview ? `${overview.trades.buy_trades} buy · ${overview.trades.sell_trades} sell` : undefined },
-                    { label: "Invested (Equity)", value: overview ? `₹${fmt(overview.portfolio.total_invested)}` : undefined, sub: overview ? `Return ${fmtPct(overview.portfolio.return_percentage)}` : undefined },
-                  ].map(stat => (
-                    <div key={stat.label} style={{ flex: "1 1 220px", minWidth: "200px", background: T.card, border: `1px solid ${T.border}`, borderRadius: "16px", padding: "16px 18px" }}>
-                      <div style={{ fontSize: "11px", fontWeight: 600, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "8px" }}>{stat.label}</div>
-                      {overviewLoading && stat.value == null ? (
-                        <div style={{ height: "22px", width: "90px", borderRadius: "6px", background: T.skeletonBg, animation: "pulse 1.5s ease-in-out infinite" }} />
-                      ) : (
-                        <div style={{ fontSize: "19px", fontWeight: 800, color: T.text }}>{stat.value ?? "—"}</div>
-                      )}
-                      {stat.sub && <div style={{ fontSize: "11px", color: T.textDim, marginTop: "4px" }}>{stat.sub}</div>}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: "16px", padding: "20px", marginBottom: "24px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginBottom: "14px" }}>
-                  <div style={{ fontSize: "15px", fontWeight: 700, color: T.text }}>Portfolio Performance</div>
-                  <div style={{ display: "flex", gap: "4px", background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)", padding: "3px", borderRadius: "10px" }}>
-                    {RANGE_TABS.map(r => {
-                      const active = range === r;
-                      return (
-                        <button
-                          key={r}
-                          onClick={() => setRange(r)}
-                          style={{
-                            padding: "5px 10px", fontSize: "12px", fontWeight: active ? 700 : 500, borderRadius: "7px",
-                            background: active ? T.cardSolid : "transparent", color: active ? T.text : T.textMuted,
-                            border: "none", cursor: "pointer",
-                          }}
-                        >
-                          {r}
-                        </button>
-                      );
-                    })}
+                {activeTab === "Overall" && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "14px", marginBottom: "24px" }}>
+                    {overviewError && <div style={{ flex: "1 1 100%" }}><ErrorBanner message={overviewError} /></div>}
+                    {[
+                      { label: "Total Orders", value: overview?.orders.total_orders, sub: overview ? `${overview.orders.executed_orders} executed · ${overview.orders.pending_orders} pending` : undefined },
+                      { label: "Total Trades", value: overview?.trades.total_trades, sub: overview ? `${overview.trades.buy_trades} buy · ${overview.trades.sell_trades} sell` : undefined },
+                      { label: "Invested (Equity)", value: overview ? `₹${fmt(overview.portfolio.total_invested)}` : undefined, sub: overview ? `Return ${fmtPct(overview.portfolio.return_percentage)}` : undefined },
+                    ].map(stat => (
+                      <div key={stat.label} style={{ flex: "1 1 220px", minWidth: "200px", background: T.card, border: `1px solid ${T.border}`, borderRadius: "16px", padding: "16px 18px" }}>
+                        <div style={{ fontSize: "11px", fontWeight: 600, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "8px" }}>{stat.label}</div>
+                        {overviewLoading && stat.value == null ? (
+                          <div style={{ height: "22px", width: "90px", borderRadius: "6px", background: T.skeletonBg, animation: "pulse 1.5s ease-in-out infinite" }} />
+                        ) : (
+                          <div style={{ fontSize: "19px", fontWeight: 800, color: T.text }}>{stat.value ?? "—"}</div>
+                        )}
+                        {stat.sub && <div style={{ fontSize: "11px", color: T.textDim, marginTop: "4px" }}>{stat.sub}</div>}
+                      </div>
+                    ))}
                   </div>
-                </div>
-                <EquityCurveChart points={curvePoints} loading={curveLoading} error={curveError} accent={tabDef.accent} range={range} T={T} isDark={isDark} />
-              </div>
+                )}
+              </ErrorBoundary>
 
-              {activeTab === "Overall" && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "20px" }}>
-                  <div style={{ flex: "1 1 420px", minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-                      <div style={{ fontSize: "15px", fontWeight: 700, color: T.text }}>Stock Holdings</div>
-                      <button onClick={() => setActiveTab("Stocks")} style={{ background: "none", border: "none", color: "#3b82f6", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>View all →</button>
+              <ErrorBoundary
+                fallback={(err, reset) => (
+                  <SectionErrorFallback T={T} error={err} onRetry={async () => { if (bucket) await fetchCurve(bucket, range); reset(); }} />
+                )}
+              >
+                <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: "16px", padding: "20px", marginBottom: "24px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", marginBottom: "14px" }}>
+                    <div style={{ fontSize: "15px", fontWeight: 700, color: T.text }}>Portfolio Performance</div>
+                    <div style={{ display: "flex", gap: "4px", background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)", padding: "3px", borderRadius: "10px" }}>
+                      {RANGE_TABS.map(r => {
+                        const active = range === r;
+                        return (
+                          <button
+                            key={r}
+                            onClick={() => setRange(r)}
+                            style={{
+                              padding: "5px 10px", fontSize: "12px", fontWeight: active ? 700 : 500, borderRadius: "7px",
+                              background: active ? T.cardSolid : "transparent", color: active ? T.text : T.textMuted,
+                              border: "none", cursor: "pointer",
+                            }}
+                          >
+                            {r}
+                          </button>
+                        );
+                      })}
                     </div>
-                    <StockHoldingsList holdings={holdings} loading={holdingsLoading} error={holdingsError} T={T} limit={5} />
                   </div>
-                  <div style={{ flex: "1 1 420px", minWidth: 0 }}>
+                  <EquityCurveChart points={curvePoints} loading={curveLoading} error={curveError} accent={tabDef.accent} range={range} T={T} isDark={isDark} />
+                </div>
+              </ErrorBoundary>
+
+              <ErrorBoundary
+                fallback={(err, reset) => (
+                  <SectionErrorFallback T={T} error={err} onRetry={async () => { await Promise.all([fetchHoldings(), fetchFno()]); reset(); }} />
+                )}
+              >
+                {activeTab === "Overall" && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "20px" }}>
+                    <div style={{ flex: "1 1 420px", minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+                        <div style={{ fontSize: "15px", fontWeight: 700, color: T.text }}>Stock Holdings</div>
+                        <button onClick={() => setActiveTab("Stocks")} style={{ background: "none", border: "none", color: "#3b82f6", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>View all →</button>
+                      </div>
+                      <StockHoldingsList holdings={holdings} loading={holdingsLoading} error={holdingsError} T={T} limit={5} />
+                    </div>
+                    <div style={{ flex: "1 1 420px", minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+                        <div style={{ fontSize: "15px", fontWeight: 700, color: T.text }}>F&O Positions</div>
+                        <button onClick={() => setActiveTab("F&O")} style={{ background: "none", border: "none", color: "#3b82f6", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>View all →</button>
+                      </div>
+                      <FnoPositionsList positions={fnoPositions} loading={fnoLoading} error={fnoError} T={T} limit={5} />
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "Stocks" && (
+                  <div>
+                    <div style={{ fontSize: "15px", fontWeight: 700, color: T.text, marginBottom: "12px" }}>Stock Holdings</div>
+                    <StockHoldingsList holdings={holdings} loading={holdingsLoading} error={holdingsError} T={T} />
+                  </div>
+                )}
+
+                {activeTab === "F&O" && (
+                  <div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
                       <div style={{ fontSize: "15px", fontWeight: 700, color: T.text }}>F&O Positions</div>
-                      <button onClick={() => setActiveTab("F&O")} style={{ background: "none", border: "none", color: "#3b82f6", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>View all →</button>
+                      <button
+                        onClick={() => navigate("/explore/fno", { state: { tab: "Positions" } })}
+                        style={{
+                          display: "flex", alignItems: "center", gap: "6px", padding: "7px 14px", borderRadius: "9px",
+                          background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)",
+                          color: "#f59e0b", fontSize: "12px", fontWeight: 700, cursor: "pointer",
+                        }}
+                      >
+                        <Briefcase style={{ width: "13px", height: "13px" }} />
+                        Manage in F&O Terminal
+                      </button>
                     </div>
-                    <FnoPositionsList positions={fnoPositions} loading={fnoLoading} error={fnoError} T={T} limit={5} />
+                    <FnoPositionsList positions={fnoPositions} loading={fnoLoading} error={fnoError} T={T} />
                   </div>
-                </div>
-              )}
-
-              {activeTab === "Stocks" && (
-                <div>
-                  <div style={{ fontSize: "15px", fontWeight: 700, color: T.text, marginBottom: "12px" }}>Stock Holdings</div>
-                  <StockHoldingsList holdings={holdings} loading={holdingsLoading} error={holdingsError} T={T} />
-                </div>
-              )}
-
-              {activeTab === "F&O" && (
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-                    <div style={{ fontSize: "15px", fontWeight: 700, color: T.text }}>F&O Positions</div>
-                    <button
-                      onClick={() => navigate("/explore/fno", { state: { tab: "Positions" } })}
-                      style={{
-                        display: "flex", alignItems: "center", gap: "6px", padding: "7px 14px", borderRadius: "9px",
-                        background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)",
-                        color: "#f59e0b", fontSize: "12px", fontWeight: 700, cursor: "pointer",
-                      }}
-                    >
-                      <Briefcase style={{ width: "13px", height: "13px" }} />
-                      Manage in F&O Terminal
-                    </button>
-                  </div>
-                  <FnoPositionsList positions={fnoPositions} loading={fnoLoading} error={fnoError} T={T} />
-                </div>
-              )}
+                )}
+              </ErrorBoundary>
             </>
           )}
         </div>
