@@ -9,6 +9,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { DARK, LIGHT } from "./mutualfunds/theme";
 import { FundCard } from "./mutualfunds/FundCard";
 import { LoadingBlock, ErrorBlock, EmptyBlock, SectionErrorFallback } from "./mutualfunds/StateBlocks";
+import { useWishlist } from "./mutualfunds/useWishlist";
 import {
   MF_API_BASE, ICON_HINT_MAP, DEFAULT_COLLECTION_ICON, extractErrorMessage,
   type MFExploreResponse,
@@ -36,6 +37,7 @@ export default function ExploreMutualFunds() {
   const [exploreLoading, setExploreLoading] = useState(true);
   const [exploreError, setExploreError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
+  const { list: wishlist } = useWishlist();
 
   useEffect(() => {
     if (!localStorage.getItem("authToken")) navigate("/", { replace: true });
@@ -240,8 +242,32 @@ export default function ExploreMutualFunds() {
           </div>
         )}
 
+        {/* ── Watchlist tab ── */}
+        {activeSection === "Watchlist" && (
+          <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
+            <div style={{ fontSize: "17px", fontWeight: 700, color: T.text, marginBottom: "4px" }}>Watchlist</div>
+            <div style={{ fontSize: "12px", color: T.textDim, marginBottom: "20px" }}>
+              {wishlist.length > 0
+                ? `${wishlist.length} fund${wishlist.length !== 1 ? "s" : ""} you're tracking`
+                : "Funds you bookmark show up here"}
+            </div>
+
+            <ErrorBoundary fallback={(error, reset) => <SectionErrorFallback error={error} onRetry={reset} T={T} />}>
+              {wishlist.length === 0 ? (
+                <EmptyBlock T={T} message="Your watchlist is empty. Tap the bookmark icon on any fund's card or detail page to add it here." />
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+                  {wishlist.map(fund => (
+                    <FundCard key={fund.scheme_code} fund={fund} T={T} onClick={() => navigate(`/explore/mutualfunds/fund/${fund.scheme_code}`)} />
+                  ))}
+                </div>
+              )}
+            </ErrorBoundary>
+          </div>
+        )}
+
         {/* ── Other tabs (not built yet) ── */}
-        {activeSection !== "Explore" && (
+        {(activeSection === "Dashboard" || activeSection === "SIPs") && (
           <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
             <div style={{
               display: "flex", alignItems: "center", justifyContent: "center",
