@@ -1,30 +1,139 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Header } from "./header";
 import { Footer } from "./footer";
-import { ChevronLeft, Search, X } from "lucide-react";
+import { ChevronLeft, Search, X, ChevronDown, Check, SlidersHorizontal } from "lucide-react";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { DARK, LIGHT } from "./mutualfunds/theme";
+import { DARK, LIGHT, type MFTheme } from "./mutualfunds/theme";
 import { FundCard } from "./mutualfunds/FundCard";
 import { LoadingBlock, ErrorBlock, EmptyBlock, SectionErrorFallback } from "./mutualfunds/StateBlocks";
 import { MF_API_BASE, extractErrorMessage, type MFFundSummary, type MFCategoriesResponse } from "../lib/mutualfunds";
 
 const PAGE_SIZE = 20;
 
-function Chip({ label, active, onClick, T }: { label: string; active: boolean; onClick: () => void; T: typeof DARK }) {
+// A single-select, searchable filter dropdown — replaces a bare horizontal
+// scroll of every category/fund-house value (unusable once there are dozens
+// of them) with the pattern most brokerage/investing apps use today: a
+// compact trigger that shows the active value, a searchable list in a
+// popover, and the applied filter surfaced separately so it's obvious what's
+// actually affecting the results.
+function FilterDropdown({
+  label, options, selected, onSelect, T,
+}: {
+  label: string;
+  options: string[];
+  selected: string | null;
+  onSelect: (value: string | null) => void;
+  T: MFTheme;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const filtered = query.trim()
+    ? options.filter(o => o.toLowerCase().includes(query.trim().toLowerCase()))
+    : options;
+
   return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: "6px 14px", borderRadius: "100px", fontSize: "12px", fontWeight: 600,
-        color: active ? "#fff" : T.textMuted,
-        background: active ? T.activeBorder : T.tabBg,
-        border: `1px solid ${active ? T.activeBorder : T.border}`,
-        cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
-      }}
-    >
-      {label}
-    </button>
+    <div ref={rootRef} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: "flex", alignItems: "center", gap: "8px", padding: "9px 14px", borderRadius: "10px",
+          fontSize: "12px", fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer",
+          color: selected ? T.activeBorder : T.textBody,
+          background: selected ? `${T.activeBorder}14` : T.card,
+          border: `1px solid ${selected ? T.activeBorder + "55" : T.border}`,
+        }}
+      >
+        {label}
+        <ChevronDown style={{ width: "13px", height: "13px", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 100, width: "300px",
+          background: T.cardSolid, border: `1px solid ${T.borderMid}`, borderRadius: "12px",
+          boxShadow: "0 16px 40px rgba(0,0,0,0.35)", padding: "10px", display: "flex", flexDirection: "column", gap: "8px",
+        }}>
+          <div style={{
+            display: "flex", alignItems: "center", gap: "8px", padding: "7px 10px",
+            background: T.tabBg, border: `1px solid ${T.border}`, borderRadius: "8px",
+          }}>
+            <Search style={{ width: "13px", height: "13px", color: T.textDim, flexShrink: 0 }} />
+            <input
+              autoFocus
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder={`Search ${label.toLowerCase()}…`}
+              style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: "12px", color: T.text }}
+            />
+          </div>
+
+          <div style={{ maxHeight: "260px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "2px" }}>
+            {selected && (
+              <div
+                onClick={() => { onSelect(null); setOpen(false); setQuery(""); }}
+                style={{ padding: "8px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, color: "#ef4444", cursor: "pointer" }}
+                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = T.tabHover; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+              >
+                Clear selection
+              </div>
+            )}
+            {filtered.length === 0 ? (
+              <div style={{ padding: "12px 10px", fontSize: "12px", color: T.textDim, textAlign: "center" }}>No matches.</div>
+            ) : filtered.map(opt => {
+              const isSelected = selected === opt;
+              return (
+                <div
+                  key={opt}
+                  onClick={() => { onSelect(isSelected ? null : opt); setOpen(false); setQuery(""); }}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px",
+                    padding: "8px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: isSelected ? 700 : 500,
+                    color: isSelected ? T.activeBorder : T.textBody, cursor: "pointer",
+                    background: isSelected ? `${T.activeBorder}14` : "transparent",
+                  }}
+                  onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = T.tabHover; }}
+                  onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+                >
+                  <span>{opt}</span>
+                  {isSelected && <Check style={{ width: "13px", height: "13px", flexShrink: 0 }} />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AppliedFilterPill({ label, onClear, T }: { label: string; onClear: () => void; T: MFTheme }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: "6px", padding: "6px 10px", borderRadius: "100px",
+      fontSize: "12px", fontWeight: 600, color: T.activeBorder,
+      background: `${T.activeBorder}14`, border: `1px solid ${T.activeBorder}55`,
+    }}>
+      <span style={{ maxWidth: "260px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+      <button
+        onClick={onClear}
+        style={{ display: "flex", border: "none", background: "transparent", color: "inherit", cursor: "pointer", padding: 0 }}
+      >
+        <X style={{ width: "12px", height: "12px" }} />
+      </button>
+    </div>
   );
 }
 
@@ -183,21 +292,31 @@ export default function MutualFundSearch() {
             )}
           </div>
 
-          {/* Filter chips */}
+          {/* Filters */}
           {facetsError ? (
             <div style={{ fontSize: "12px", color: T.textDim, marginBottom: "16px" }}>{facetsError}</div>
           ) : facets && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "20px" }}>
-              <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "4px" }}>
-                {facets.categories.map(c => (
-                  <Chip key={c} label={c} active={category === c} onClick={() => setCategory(prev => (prev === c ? null : c))} T={T} />
-                ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: 700, color: T.textDim }}>
+                  <SlidersHorizontal style={{ width: "13px", height: "13px" }} /> Filters
+                </span>
+                <FilterDropdown label="Category" options={facets.categories} selected={category} onSelect={setCategory} T={T} />
+                <FilterDropdown label="Fund House" options={facets.fund_houses} selected={fundHouse} onSelect={setFundHouse} T={T} />
               </div>
-              <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "4px" }}>
-                {facets.fund_houses.map(fh => (
-                  <Chip key={fh} label={fh} active={fundHouse === fh} onClick={() => setFundHouse(prev => (prev === fh ? null : fh))} T={T} />
-                ))}
-              </div>
+
+              {(category || fundHouse) && (
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  {category && <AppliedFilterPill label={category} onClear={() => setCategory(null)} T={T} />}
+                  {fundHouse && <AppliedFilterPill label={fundHouse} onClear={() => setFundHouse(null)} T={T} />}
+                  <button
+                    onClick={() => { setCategory(null); setFundHouse(null); }}
+                    style={{ fontSize: "12px", fontWeight: 600, color: T.textMuted, background: "transparent", border: "none", cursor: "pointer", padding: "6px 4px" }}
+                  >
+                    Clear all
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
