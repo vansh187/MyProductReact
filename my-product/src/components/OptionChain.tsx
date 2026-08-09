@@ -356,6 +356,7 @@ export default function OptionChain() {
                 display: "flex", alignItems: "center", justifyContent: "center",
                 cursor: "pointer", color: T.textMuted,
               }}
+              
             >
               <ChevronLeft size={18} />
             </button>
