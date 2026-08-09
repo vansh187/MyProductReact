@@ -10,6 +10,7 @@ import { DARK, LIGHT } from "./mutualfunds/theme";
 import { FundCard } from "./mutualfunds/FundCard";
 import { LoadingBlock, ErrorBlock, EmptyBlock, SectionErrorFallback } from "./mutualfunds/StateBlocks";
 import { useWishlist } from "./mutualfunds/useWishlist";
+import { MutualFundDashboard } from "./mutualfunds/Dashboard";
 import {
   MF_API_BASE, ICON_HINT_MAP, DEFAULT_COLLECTION_ICON, extractErrorMessage,
   type MFExploreResponse,
@@ -266,8 +267,17 @@ export default function ExploreMutualFunds() {
           </div>
         )}
 
+        {/* ── Dashboard tab ── */}
+        {activeSection === "Dashboard" && (
+          <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
+            <ErrorBoundary fallback={(error, reset) => <SectionErrorFallback error={error} onRetry={reset} T={T} />}>
+              <MutualFundDashboard T={T} />
+            </ErrorBoundary>
+          </div>
+        )}
+
         {/* ── Other tabs (not built yet) ── */}
-        {(activeSection === "Dashboard" || activeSection === "SIPs") && (
+        {activeSection === "SIPs" && (
           <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
             <div style={{
               display: "flex", alignItems: "center", justifyContent: "center",
