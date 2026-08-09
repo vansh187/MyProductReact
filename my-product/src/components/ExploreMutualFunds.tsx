@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "./header";
 import { Footer } from "./footer";
 import {
-  Megaphone, Download, FileText, GitCompare, Calculator, SlidersHorizontal, ChevronRight,
+  Megaphone, Download, GitCompare, Calculator, SlidersHorizontal, ChevronRight,
 } from "lucide-react";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { DARK, LIGHT } from "./mutualfunds/theme";
@@ -11,6 +11,7 @@ import { FundCard } from "./mutualfunds/FundCard";
 import { LoadingBlock, ErrorBlock, EmptyBlock, SectionErrorFallback } from "./mutualfunds/StateBlocks";
 import { useWishlist } from "./mutualfunds/useWishlist";
 import { MutualFundDashboard } from "./mutualfunds/Dashboard";
+import { SipCalculatorModal } from "./mutualfunds/SipCalculator";
 import {
   MF_API_BASE, ICON_HINT_MAP, DEFAULT_COLLECTION_ICON, extractErrorMessage,
   type MFExploreResponse,
@@ -21,7 +22,6 @@ const SECTION_TABS = ["Explore", "Dashboard", "SIPs", "Watchlist"];
 const PRODUCTS_AND_TOOLS = [
   { key: "nfo",      label: "NFO Live",             icon: Megaphone },
   { key: "import",   label: "Import funds",          icon: Download },
-  { key: "tax",      label: "File tax",              icon: FileText },
   { key: "compare",  label: "Compare funds",         icon: GitCompare },
   { key: "sip-calc", label: "SIP Calculator",        icon: Calculator },
   { key: "screener", label: "Mutual funds screener", icon: SlidersHorizontal },
@@ -39,6 +39,7 @@ export default function ExploreMutualFunds() {
   const [exploreError, setExploreError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
   const { list: wishlist } = useWishlist();
+  const [sipCalculatorOpen, setSipCalculatorOpen] = useState(false);
 
   useEffect(() => {
     if (!localStorage.getItem("authToken")) navigate("/", { replace: true });
@@ -225,6 +226,7 @@ export default function ExploreMutualFunds() {
                     return (
                       <div
                         key={item.key}
+                        onClick={() => { if (item.key === "sip-calc") setSipCalculatorOpen(true); }}
                         style={{
                           display: "flex", alignItems: "center", gap: "12px", padding: "11px 12px",
                           borderTop: `1px solid ${T.border}`, cursor: "pointer", borderRadius: "10px",
@@ -290,6 +292,10 @@ export default function ExploreMutualFunds() {
         )}
 
       </main>
+
+      {sipCalculatorOpen && (
+        <SipCalculatorModal T={T} onClose={() => setSipCalculatorOpen(false)} />
+      )}
 
       <Footer isDark={isDark} />
     </div>
