@@ -12,6 +12,7 @@ import { LoadingBlock, ErrorBlock, EmptyBlock, SectionErrorFallback } from "./mu
 import { useWishlist } from "./mutualfunds/useWishlist";
 import { MutualFundDashboard } from "./mutualfunds/Dashboard";
 import { SipCalculatorModal } from "./mutualfunds/SipCalculator";
+import { CompareFundsModal } from "./mutualfunds/CompareFunds";
 import {
   MF_API_BASE, ICON_HINT_MAP, DEFAULT_COLLECTION_ICON, extractErrorMessage,
   type MFExploreResponse,
@@ -40,6 +41,7 @@ export default function ExploreMutualFunds() {
   const [retryTick, setRetryTick] = useState(0);
   const { list: wishlist } = useWishlist();
   const [sipCalculatorOpen, setSipCalculatorOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
 
   useEffect(() => {
     if (!localStorage.getItem("authToken")) navigate("/", { replace: true });
@@ -226,7 +228,10 @@ export default function ExploreMutualFunds() {
                     return (
                       <div
                         key={item.key}
-                        onClick={() => { if (item.key === "sip-calc") setSipCalculatorOpen(true); }}
+                        onClick={() => {
+                          if (item.key === "sip-calc") setSipCalculatorOpen(true);
+                          if (item.key === "compare") setCompareOpen(true);
+                        }}
                         style={{
                           display: "flex", alignItems: "center", gap: "12px", padding: "11px 12px",
                           borderTop: `1px solid ${T.border}`, cursor: "pointer", borderRadius: "10px",
@@ -295,6 +300,10 @@ export default function ExploreMutualFunds() {
 
       {sipCalculatorOpen && (
         <SipCalculatorModal T={T} onClose={() => setSipCalculatorOpen(false)} />
+      )}
+
+      {compareOpen && (
+        <CompareFundsModal T={T} onClose={() => setCompareOpen(false)} />
       )}
 
       <Footer isDark={isDark} />

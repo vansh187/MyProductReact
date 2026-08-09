@@ -1,9 +1,8 @@
-import { useMemo, useState, useRef, useEffect, type CSSProperties } from "react";
+import { useMemo, useState, useEffect, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
-import { Calculator, X, Sparkles, ArrowRight } from "lucide-react";
+import { Calculator, Sparkles, ArrowRight } from "lucide-react";
 import type { MFTheme } from "./theme";
-
-const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+import { LuxuryModal } from "./LuxuryModal";
 
 // The luxury slider's thumb color is set via a CSS custom property (read by
 // the injected <style> block below) so each SliderField instance can have a
@@ -135,37 +134,6 @@ export function SipCalculatorModal({ T, onClose }: { T: MFTheme; onClose: () => 
   const [rate, setRate] = useState(12);
   const [years, setYears] = useState(10);
   const accent = T.activeBorder;
-  const cardRef = useRef<HTMLDivElement>(null);
-  const closeBtnRef = useRef<HTMLButtonElement>(null);
-
-  // Keyboard-only support: Escape closes, focus starts on the close button,
-  // and Tab/Shift+Tab is trapped inside the card instead of leaking out to
-  // the page underneath.
-  useEffect(() => {
-    closeBtnRef.current?.focus();
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab" || !cardRef.current) return;
-      const focusable = cardRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
 
   const result = useMemo(() => {
     const months = years * 12;
@@ -184,13 +152,7 @@ export function SipCalculatorModal({ T, onClose }: { T: MFTheme; onClose: () => 
   }, [monthly, rate, years]);
 
   return (
-    <div
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)",
-        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: "20px",
-      }}
-      onClick={onClose}
-    >
+    <LuxuryModal T={T} icon={Calculator} title="SIP Calculator" subtitle="Plan your systematic investment, live" onClose={onClose}>
       <style>{`
         .luxury-slider::-webkit-slider-thumb {
           appearance: none; width: 20px; height: 20px; border-radius: 50%;
@@ -205,111 +167,67 @@ export function SipCalculatorModal({ T, onClose }: { T: MFTheme; onClose: () => 
         }
       `}</style>
 
-      <div
-        ref={cardRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="SIP Calculator"
-        onClick={e => e.stopPropagation()}
+      {/* Inputs */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "22px", marginBottom: "26px" }}>
+        <SliderField label="Monthly Investment" value={monthly} min={500} max={200000} step={500} prefix="₹" accent={accent} T={T} onChange={setMonthly} />
+        <SliderField label="Expected Return Rate (p.a.)" value={rate} min={1} max={30} step={0.5} suffix="%" accent={accent} T={T} onChange={setRate} />
+        <SliderField label="Time Period" value={years} min={1} max={40} step={1} suffix=" yr" accent={accent} T={T} onChange={setYears} />
+      </div>
+
+      {/* Results */}
+      <div style={{
+        background: `linear-gradient(135deg, ${accent}12, transparent)`,
+        border: `1px solid ${accent}33`, borderRadius: "18px", padding: "24px",
+        display: "flex", alignItems: "center", gap: "24px", flexWrap: "wrap",
+      }}>
+        <ResultDonut investedPct={result.investedPct} accent={accent} T={T} />
+
+        <div style={{ flex: 1, minWidth: "220px", display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              <Sparkles style={{ width: "12px", height: "12px", color: accent }} /> Total Value
+            </div>
+            <div style={{ fontSize: "32px", fontWeight: 800, color: T.text, letterSpacing: "-0.5px" }}>
+              ₹{fmtINR(result.total)}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "20px" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: T.textMuted, fontWeight: 600 }}>
+                <span style={{ width: "8px", height: "8px", borderRadius: "3px", background: accent }} /> Invested
+              </div>
+              <div style={{ fontSize: "15px", fontWeight: 700, color: T.text, marginTop: "3px" }}>₹{fmtINR(result.invested)}</div>
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: T.textMuted, fontWeight: 600 }}>
+                <span style={{
+                  width: "8px", height: "8px", borderRadius: "3px",
+                  background: T.border === "rgba(255,255,255,0.07)" ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)",
+                }} /> Est. Returns
+              </div>
+              <div style={{ fontSize: "15px", fontWeight: 700, color: "#22c55e", marginTop: "3px" }}>+₹{fmtINR(result.returns)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: "11px", color: T.textDim, marginTop: "14px", textAlign: "center" }}>
+        Mutual fund investments are subject to market risk. Figures are indicative, not guaranteed returns.
+      </div>
+
+      <button
+        onClick={() => { onClose(); navigate("/explore/mutualfunds/search"); }}
         style={{
-          width: "680px", maxWidth: "100%", maxHeight: "92vh", overflowY: "auto",
-          background: T.cardSolid, borderRadius: "24px", border: `1px solid ${T.borderMid}`,
-          boxShadow: `0 0 0 1px ${accent}22, 0 40px 100px rgba(0,0,0,0.55)`,
-          padding: "28px",
+          width: "100%", marginTop: "18px", padding: "14px", borderRadius: "12px", border: "none",
+          background: `linear-gradient(135deg, ${accent}, ${accent}cc)`, color: "#fff",
+          fontSize: "14px", fontWeight: 700, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+          boxShadow: `0 10px 26px ${accent}40`,
         }}
       >
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "26px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-            <div style={{
-              width: "48px", height: "48px", borderRadius: "14px", flexShrink: 0,
-              background: `linear-gradient(135deg, ${accent}, ${accent}99)`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: `0 8px 20px ${accent}44`,
-            }}>
-              <Calculator style={{ width: "22px", height: "22px", color: "#fff" }} />
-            </div>
-            <div>
-              <div style={{ fontSize: "18px", fontWeight: 800, color: T.text, letterSpacing: "-0.2px" }}>SIP Calculator</div>
-              <div style={{ fontSize: "12px", color: T.textDim }}>Plan your systematic investment, live</div>
-            </div>
-          </div>
-          <button
-            ref={closeBtnRef}
-            onClick={onClose}
-            aria-label="Close SIP calculator"
-            style={{
-              width: "32px", height: "32px", borderRadius: "10px", flexShrink: 0,
-              background: T.tabBg, border: `1px solid ${T.border}`, color: T.textMuted,
-              display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
-            }}
-          >
-            <X style={{ width: "15px", height: "15px" }} />
-          </button>
-        </div>
-
-        {/* Inputs */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "22px", marginBottom: "26px" }}>
-          <SliderField label="Monthly Investment" value={monthly} min={500} max={200000} step={500} prefix="₹" accent={accent} T={T} onChange={setMonthly} />
-          <SliderField label="Expected Return Rate (p.a.)" value={rate} min={1} max={30} step={0.5} suffix="%" accent={accent} T={T} onChange={setRate} />
-          <SliderField label="Time Period" value={years} min={1} max={40} step={1} suffix=" yr" accent={accent} T={T} onChange={setYears} />
-        </div>
-
-        {/* Results */}
-        <div style={{
-          background: `linear-gradient(135deg, ${accent}12, transparent)`,
-          border: `1px solid ${accent}33`, borderRadius: "18px", padding: "24px",
-          display: "flex", alignItems: "center", gap: "24px", flexWrap: "wrap",
-        }}>
-          <ResultDonut investedPct={result.investedPct} accent={accent} T={T} />
-
-          <div style={{ flex: 1, minWidth: "220px", display: "flex", flexDirection: "column", gap: "12px" }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                <Sparkles style={{ width: "12px", height: "12px", color: accent }} /> Total Value
-              </div>
-              <div style={{ fontSize: "32px", fontWeight: 800, color: T.text, letterSpacing: "-0.5px" }}>
-                ₹{fmtINR(result.total)}
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: "20px" }}>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: T.textMuted, fontWeight: 600 }}>
-                  <span style={{ width: "8px", height: "8px", borderRadius: "3px", background: accent }} /> Invested
-                </div>
-                <div style={{ fontSize: "15px", fontWeight: 700, color: T.text, marginTop: "3px" }}>₹{fmtINR(result.invested)}</div>
-              </div>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: T.textMuted, fontWeight: 600 }}>
-                  <span style={{
-                    width: "8px", height: "8px", borderRadius: "3px",
-                    background: T.border === "rgba(255,255,255,0.07)" ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)",
-                  }} /> Est. Returns
-                </div>
-                <div style={{ fontSize: "15px", fontWeight: 700, color: "#22c55e", marginTop: "3px" }}>+₹{fmtINR(result.returns)}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ fontSize: "11px", color: T.textDim, marginTop: "14px", textAlign: "center" }}>
-          Mutual fund investments are subject to market risk. Figures are indicative, not guaranteed returns.
-        </div>
-
-        <button
-          onClick={() => { onClose(); navigate("/explore/mutualfunds/search"); }}
-          style={{
-            width: "100%", marginTop: "18px", padding: "14px", borderRadius: "12px", border: "none",
-            background: `linear-gradient(135deg, ${accent}, ${accent}cc)`, color: "#fff",
-            fontSize: "14px", fontWeight: 700, cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-            boxShadow: `0 10px 26px ${accent}40`,
-          }}
-        >
-          Explore funds to start this SIP <ArrowRight style={{ width: "15px", height: "15px" }} />
-        </button>
-      </div>
-    </div>
+        Explore funds to start this SIP <ArrowRight style={{ width: "15px", height: "15px" }} />
+      </button>
+    </LuxuryModal>
   );
 }
