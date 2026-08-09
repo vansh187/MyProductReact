@@ -91,12 +91,12 @@ const NAV_ITEMS = [
     accent: "#10b981",
     sections: [
       { heading: "Discover", items: [
-        { icon: PieChart,  title: "Explore Funds",  desc: "Browse top-rated mutual funds",      color: "#10b981", route: null },
-        { icon: Activity,  title: "Dashboard",       desc: "Portfolio overview & analytics",     color: "#3b82f6", route: null },
+        { icon: PieChart,  title: "Explore Funds",  desc: "Browse top-rated mutual funds",      color: "#10b981", route: "/explore/mutualfunds", tab: "Explore"   },
+        { icon: Activity,  title: "Dashboard",       desc: "Portfolio overview & analytics",     color: "#3b82f6", route: "/explore/mutualfunds", tab: "Dashboard" },
       ]},
       { heading: "Invest", items: [
-        { icon: RefreshCw, title: "SIP Manager",  desc: "Manage systematic investment plans",  color: "#8b5cf6", route: null },
-        { icon: Bookmark,  title: "Watchlist",    desc: "Track your favourite funds",          color: "#f59e0b", route: null },
+        { icon: RefreshCw, title: "SIP Manager",  desc: "Manage systematic investment plans",  color: "#8b5cf6", route: "/explore/mutualfunds", tab: "SIPs"      },
+        { icon: Bookmark,  title: "Watchlist",    desc: "Track your favourite funds",          color: "#f59e0b", route: "/explore/mutualfunds", tab: "Watchlist" },
       ]},
     ],
   },
