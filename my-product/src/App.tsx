@@ -9,10 +9,12 @@ import ExploreMutualFunds from './components/ExploreMutualFunds';
 import MutualFundCollection from './components/MutualFundCollection';
 import MutualFundSearch from './components/MutualFundSearch';
 import MutualFundDetail from './components/MutualFundDetail';
+import { ScrollToTop } from './components/ScrollToTop';
 
 function App() {
   return (
     <>
+      <ScrollToTop />
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/home" element={<HomePage />} />
