@@ -216,29 +216,31 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
 
-  async function handleLogout() {
-    try {
-      const token = localStorage.getItem("authToken");
-      if (token) {
-        await fetch("https://my-product-backend-j1hu.onrender.com/v1/logout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        });
-      }
-    } catch {
-      // backend unreachable — still clear client state and redirect
-    } finally {
-      localStorage.clear();
-      sessionStorage.clear();
-      // Clear any auth cookies by expiring them
-      document.cookie.split(";").forEach(c => {
-        document.cookie = c.trim().split("=")[0] + "=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/";
-      });
-      navigate("/");
+  const BASE_URL = "https://api.primepiptrade.com";
+
+  function handleLogout() {
+    const token = localStorage.getItem("authToken");
+    // Log the user out client-side immediately — this must not block on a
+    // backend round-trip (the old logout call pointed at a stale/dead host
+    // and was awaited before clearing anything, so a slow or unreachable
+    // backend made the button look completely broken). Clearing state and
+    // navigating away first means logout always works instantly regardless
+    // of backend health; the server-side call below is best-effort.
+    localStorage.clear();
+    sessionStorage.clear();
+    // Clear any auth cookies by expiring them
+    document.cookie.split(";").forEach(c => {
+      document.cookie = c.trim().split("=")[0] + "=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/";
+    });
+    navigate("/");
+
+    if (token) {
+      fetch(`${BASE_URL}/v1/logout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      }).catch(() => { /* best-effort — client is already logged out */ });
     }
   }
-
-  const BASE_URL = "https://api.primepiptrade.com";
 
   function handleSessionExpired() {
     localStorage.clear();
