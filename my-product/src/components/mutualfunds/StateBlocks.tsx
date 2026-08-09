@@ -46,7 +46,7 @@ export function ErrorBlock({ T, message, onRetry }: { T: MFTheme; message: strin
 
 // Fallback rendered by a section-scoped ErrorBoundary (see ErrorBoundary.tsx's
 // `fallback` prop) — keeps a render crash contained to one section instead of
-// blanking the whole page, matching the pattern established in OverallDashboard.tsx.
+// blanking the whole page.
 export function SectionErrorFallback({ error, onRetry, T }: { error: Error; onRetry: () => void; T: MFTheme }) {
   return (
     <div style={{

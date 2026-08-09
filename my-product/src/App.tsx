@@ -5,7 +5,6 @@ import HomePage from './components/HomePage';
 import ExploreFutureOptions from './components/ExploreFutureOptions';
 import FuturesTerminal from './components/FuturesTerminal';
 import OptionChain from './components/OptionChain';
-import OverallDashboard from './components/OverallDashboard';
 import ExploreMutualFunds from './components/ExploreMutualFunds';
 import MutualFundCollection from './components/MutualFundCollection';
 import MutualFundSearch from './components/MutualFundSearch';
@@ -17,7 +16,6 @@ function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/home" element={<HomePage />} />
-        <Route path="/dashboard" element={<OverallDashboard />} />
         <Route path="/explore/mutualfunds" element={<ExploreMutualFunds />} />
         <Route path="/explore/mutualfunds/collection/:key" element={<MutualFundCollection />} />
         <Route path="/explore/mutualfunds/search" element={<MutualFundSearch />} />
