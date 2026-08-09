@@ -3,7 +3,6 @@ import {
   BarChart2, TrendingUp, PieChart, Activity,
   Bookmark, FileText, RefreshCw, Layers, List,
   Briefcase, LogOut, Settings, ArrowUpRight, ChevronDown,
-  LayoutDashboard,
 } from "lucide-react";
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -108,18 +107,6 @@ const NAV_ITEMS = [
         { icon: Layers,     title: "Explore F&O",  desc: "Options & futures market overview",  color: "#f59e0b", route: "/explore/fno", tab: "Explore"   },
         { icon: TrendingUp, title: "Positions",    desc: "All your active F&O positions",      color: "#3b82f6", route: "/explore/fno", tab: "Positions" },
         { icon: List,       title: "Orders",       desc: "F&O order book & history",           color: "#10b981", route: "/explore/fno", tab: "Orders"    },
-      ]},
-    ],
-  },
-  {
-    label: "Dashboard",
-    accent: "#6366f1",
-    sections: [
-      { heading: "Overview", items: [
-        { icon: LayoutDashboard, title: "Overall",       desc: "Combined view across all your investments", color: "#6366f1", route: "/dashboard", tab: "Overall" },
-        { icon: BarChart2,       title: "Stocks",        desc: "Stock portfolio performance",                color: "#3b82f6", route: "/dashboard", tab: "Stocks" },
-        { icon: PieChart,        title: "Mutual Funds",  desc: "Mutual fund portfolio performance",          color: "#10b981", route: "/dashboard", tab: "Mutual Funds" },
-        { icon: Layers,          title: "F&O",           desc: "Futures & options performance",              color: "#f59e0b", route: "/dashboard", tab: "F&O" },
       ]},
     ],
   },
