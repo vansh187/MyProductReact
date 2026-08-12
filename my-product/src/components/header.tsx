@@ -3,6 +3,7 @@ import {
   BarChart2, TrendingUp, PieChart, Activity,
   Bookmark, FileText, RefreshCw, Layers, List,
   Briefcase, LogOut, Settings, ArrowUpRight, ChevronDown,
+  LayoutDashboard,
 } from "lucide-react";
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -90,12 +91,12 @@ const NAV_ITEMS = [
     accent: "#10b981",
     sections: [
       { heading: "Discover", items: [
-        { icon: PieChart,  title: "Explore Funds",  desc: "Browse top-rated mutual funds",      color: "#10b981", route: null },
-        { icon: Activity,  title: "Dashboard",       desc: "Portfolio overview & analytics",     color: "#3b82f6", route: null },
+        { icon: PieChart,  title: "Explore Funds",  desc: "Browse top-rated mutual funds",      color: "#10b981", route: "/explore/mutualfunds", tab: "Explore"   },
+        { icon: Activity,  title: "Dashboard",       desc: "Portfolio overview & analytics",     color: "#3b82f6", route: "/explore/mutualfunds", tab: "Dashboard" },
       ]},
       { heading: "Invest", items: [
-        { icon: RefreshCw, title: "SIP Manager",  desc: "Manage systematic investment plans",  color: "#8b5cf6", route: null },
-        { icon: Bookmark,  title: "Watchlist",    desc: "Track your favourite funds",          color: "#f59e0b", route: null },
+        { icon: RefreshCw, title: "SIP Manager",  desc: "Manage systematic investment plans",  color: "#8b5cf6", route: "/explore/mutualfunds", tab: "SIPs"      },
+        { icon: Bookmark,  title: "Watchlist",    desc: "Track your favourite funds",          color: "#f59e0b", route: "/explore/mutualfunds", tab: "Watchlist" },
       ]},
     ],
   },
@@ -112,13 +113,13 @@ const NAV_ITEMS = [
   },
   {
     label: "Dashboard",
-    accent: "#8b5cf6",
+    accent: "#6366f1",
     sections: [
       { heading: "Portfolio Views", items: [
-        { icon: Activity,   title: "Overall",       desc: "Net worth & performance across all assets", color: "#8b5cf6", route: "/dashboard", tab: "Overall"      },
-        { icon: BarChart2,  title: "Stocks",        desc: "Equity holdings & performance",              color: "#3b82f6", route: "/dashboard", tab: "Stocks"       },
-        { icon: PieChart,   title: "Mutual Funds",  desc: "SIPs, NAV & category allocation",            color: "#10b981", route: "/dashboard", tab: "Mutual Funds" },
-        { icon: Layers,     title: "F&O",           desc: "Derivatives positions & P&L",                color: "#f59e0b", route: "/dashboard", tab: "F&O"          },
+        { icon: LayoutDashboard, title: "Overall",       desc: "Net worth & performance across all assets", color: "#6366f1", route: "/dashboard", tab: "Overall"      },
+        { icon: BarChart2,       title: "Stocks",        desc: "Equity holdings & performance",              color: "#3b82f6", route: "/dashboard", tab: "Stocks"       },
+        { icon: PieChart,        title: "Mutual Funds",  desc: "SIPs, NAV & category allocation",            color: "#10b981", route: "/dashboard", tab: "Mutual Funds" },
+        { icon: Layers,          title: "F&O",           desc: "Derivatives positions & P&L",                color: "#f59e0b", route: "/dashboard", tab: "F&O"          },
       ]},
     ],
   },
@@ -228,29 +229,31 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
 
-  async function handleLogout() {
-    try {
-      const token = localStorage.getItem("authToken");
-      if (token) {
-        await fetch("https://my-product-backend-j1hu.onrender.com/v1/logout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        });
-      }
-    } catch {
-      // backend unreachable — still clear client state and redirect
-    } finally {
-      localStorage.clear();
-      sessionStorage.clear();
-      // Clear any auth cookies by expiring them
-      document.cookie.split(";").forEach(c => {
-        document.cookie = c.trim().split("=")[0] + "=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/";
-      });
-      navigate("/");
+  const BASE_URL = "https://api.primepiptrade.com";
+
+  function handleLogout() {
+    const token = localStorage.getItem("authToken");
+    // Log the user out client-side immediately — this must not block on a
+    // backend round-trip (the old logout call pointed at a stale/dead host
+    // and was awaited before clearing anything, so a slow or unreachable
+    // backend made the button look completely broken). Clearing state and
+    // navigating away first means logout always works instantly regardless
+    // of backend health; the server-side call below is best-effort.
+    localStorage.clear();
+    sessionStorage.clear();
+    // Clear any auth cookies by expiring them
+    document.cookie.split(";").forEach(c => {
+      document.cookie = c.trim().split("=")[0] + "=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/";
+    });
+    navigate("/");
+
+    if (token) {
+      fetch(`${BASE_URL}/v1/logout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      }).catch(() => { /* best-effort — client is already logged out */ });
     }
   }
-
-  const BASE_URL = "https://api.primepiptrade.com";
 
   function handleSessionExpired() {
     localStorage.clear();

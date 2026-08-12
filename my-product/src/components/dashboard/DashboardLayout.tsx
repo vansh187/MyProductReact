@@ -105,7 +105,7 @@ export default function DashboardLayout() {
       <main style={{ flex: 1, maxWidth: "1400px", width: "100%", margin: "0 auto", padding: "20px 28px 40px" }}>
         {activeTab === "Overall" && <OverallView theme={theme} />}
         {activeTab === "Stocks" && <StocksView theme={theme} />}
-        {activeTab === "Mutual Funds" && <MutualFundsView theme={theme} />}
+        {activeTab === "Mutual Funds" && <MutualFundsView theme={theme} isDark={isDark} />}
         {activeTab === "F&O" && <FnoView theme={theme} />}
       </main>
 
