@@ -5,6 +5,7 @@ import HomePage from './components/HomePage';
 import ExploreFutureOptions from './components/ExploreFutureOptions';
 import FuturesTerminal from './components/FuturesTerminal';
 import OptionChain from './components/OptionChain';
+import DashboardLayout from './components/dashboard/DashboardLayout';
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
         <Route path="/explore/fno" element={<ExploreFutureOptions />} />
         <Route path="/terminal/fno" element={<FuturesTerminal />} />
         <Route path="/terminal/fno/chain" element={<OptionChain />} />
+        <Route path="/dashboard" element={<DashboardLayout />} />
       </Routes>
     </>
   )

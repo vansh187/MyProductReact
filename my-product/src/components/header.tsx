@@ -110,6 +110,18 @@ const NAV_ITEMS = [
       ]},
     ],
   },
+  {
+    label: "Dashboard",
+    accent: "#8b5cf6",
+    sections: [
+      { heading: "Portfolio Views", items: [
+        { icon: Activity,   title: "Overall",       desc: "Net worth & performance across all assets", color: "#8b5cf6", route: "/dashboard", tab: "Overall"      },
+        { icon: BarChart2,  title: "Stocks",        desc: "Equity holdings & performance",              color: "#3b82f6", route: "/dashboard", tab: "Stocks"       },
+        { icon: PieChart,   title: "Mutual Funds",  desc: "SIPs, NAV & category allocation",            color: "#10b981", route: "/dashboard", tab: "Mutual Funds" },
+        { icon: Layers,     title: "F&O",           desc: "Derivatives positions & P&L",                color: "#f59e0b", route: "/dashboard", tab: "F&O"          },
+      ]},
+    ],
+  },
 ];
 
 /* ── NavDropdown ──────────────────────────────────────── */
