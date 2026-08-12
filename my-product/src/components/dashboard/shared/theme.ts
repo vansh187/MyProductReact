@@ -1,7 +1,22 @@
+export interface DashTheme {
+  pageBg: string;
+  cardBg: string;
+  cardBorder: string;
+  text: string;
+  textMuted: string;
+  textDim: string;
+  green: string;
+  red: string;
+  accent: string;
+  hover: string;
+  tabActive: string;
+  tabInactiveText: string;
+}
+
 // Dark-mode-first fintech palette per the PrimePipTrade dashboard spec.
 // Light variant is a reasonable inverse so the existing app-wide theme
 // toggle still works, since every other page in this app supports both.
-export const DASH_THEME = {
+export const DASH_THEME: { dark: DashTheme; light: DashTheme } = {
   dark: {
     pageBg:     "#0B0E14",
     cardBg:     "#151A23",
@@ -30,9 +45,7 @@ export const DASH_THEME = {
     tabActive:  "rgba(59,130,246,0.1)",
     tabInactiveText: "#64748b",
   },
-} as const;
-
-export type DashTheme = typeof DASH_THEME.dark;
+};
 
 export function themeFor(isDark: boolean): DashTheme {
   return isDark ? DASH_THEME.dark : DASH_THEME.light;

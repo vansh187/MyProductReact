@@ -202,6 +202,34 @@ export interface GreeksSnapshot {
   ivSkew: number;
 }
 
+export type ExpiryUrgency = "expired" | "critical" | "warning" | "normal";
+
+export interface ExpiryCountdown {
+  text: string;
+  urgency: ExpiryUrgency;
+}
+
+// NSE F&O contracts expire at market close (15:30 IST) on the expiry date,
+// regardless of the viewer's own timezone - the "+05:30" offset pins that.
+export function formatTimeToExpiry(expiryIso: string | null, now: Date = new Date()): ExpiryCountdown | null {
+  if (!expiryIso) return null;
+  const expiryAt = new Date(`${expiryIso}T15:30:00+05:30`);
+  const diffMs = expiryAt.getTime() - now.getTime();
+
+  if (diffMs <= 0) return { text: "Expired", urgency: "expired" };
+
+  const totalMinutes = Math.floor(diffMs / 60000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+
+  const text = days > 0 ? `${days}d ${hours}h` : hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  const urgency: ExpiryUrgency =
+    diffMs < 24 * 60 * 60 * 1000 ? "critical" : diffMs < 3 * 24 * 60 * 60 * 1000 ? "warning" : "normal";
+
+  return { text, urgency };
+}
+
 export function mockGreeksFor(symbol: string): GreeksSnapshot {
   // Deterministic pseudo-random spread per symbol so values are stable
   // across re-renders instead of jumping around, while still being

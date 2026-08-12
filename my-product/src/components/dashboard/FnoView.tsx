@@ -8,11 +8,13 @@ import {
   fmtSigned,
   pnlColor,
   mockGreeksFor,
+  formatTimeToExpiry,
   MOCK_NEWS,
   type AssetClassSummary,
   type EquityCurvePoint,
   type FnoPositionRow,
   type RangeKey,
+  type ExpiryUrgency,
 } from "../../lib/dashboard";
 import type { DashTheme } from "./shared/theme";
 import { StatCard, StatCardSkeleton } from "./shared/StatCard";
@@ -24,16 +26,23 @@ interface FnoViewProps {
   theme: DashTheme;
 }
 
-function daysUntil(iso: string | null): number | null {
-  if (!iso) return null;
-  const diffMs = new Date(iso).getTime() - Date.now();
-  return Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-}
-
 function instrumentLabel(p: FnoPositionRow): string {
   if (p.contract_type === "FUTURES") return `${p.underlying ?? p.symbol} FUT`;
   if (p.strike && p.option_type) return `${p.underlying ?? p.symbol} ${p.strike} ${p.option_type}`;
   return p.symbol;
+}
+
+function fmtExpiryDate(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(`${iso}T00:00:00`);
+  return isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function urgencyColor(theme: DashTheme, urgency: ExpiryUrgency): string {
+  if (urgency === "expired") return theme.textDim;
+  if (urgency === "critical") return theme.red;
+  if (urgency === "warning") return "#f59e0b";
+  return theme.textMuted;
 }
 
 export function FnoView({ theme }: FnoViewProps) {
@@ -45,6 +54,12 @@ export function FnoView({ theme }: FnoViewProps) {
   const [curveLoading, setCurveLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,10 +91,15 @@ export function FnoView({ theme }: FnoViewProps) {
   }, [range]);
 
   const openPositions = useMemo(() => positions.filter((p) => p.status === "OPEN"), [positions]);
-  const nearestExpiryDays = useMemo(() => {
-    const days = openPositions.map((p) => daysUntil(p.expiry)).filter((d): d is number => d !== null);
-    return days.length ? Math.min(...days) : null;
-  }, [openPositions]);
+  const nearestExpiry = useMemo(() => {
+    let soonest: { expiry: string; countdown: ReturnType<typeof formatTimeToExpiry> } | null = null;
+    for (const p of openPositions) {
+      const countdown = formatTimeToExpiry(p.expiry, now);
+      if (!countdown || countdown.urgency === "expired" || !p.expiry) continue;
+      if (!soonest || p.expiry < soonest.expiry) soonest = { expiry: p.expiry, countdown };
+    }
+    return soonest?.countdown ?? null;
+  }, [openPositions, now]);
 
   if (error) {
     return <div style={{ padding: "40px", textAlign: "center", color: theme.red }}>{error}</div>;
@@ -107,8 +127,9 @@ export function FnoView({ theme }: FnoViewProps) {
             <StatCard
               theme={theme}
               label="Upcoming Expiry"
-              value={nearestExpiryDays !== null ? `${nearestExpiryDays} day${nearestExpiryDays === 1 ? "" : "s"}` : "—"}
+              value={nearestExpiry ? nearestExpiry.text : "—"}
               icon={<CalendarClock style={{ width: 13, height: 13 }} />}
+              subValueColor={nearestExpiry ? urgencyColor(theme, nearestExpiry.urgency) : undefined}
               subValue={openPositions.length ? `${openPositions.length} open contract${openPositions.length === 1 ? "" : "s"}` : "No open contracts"}
             />
           </>
@@ -128,20 +149,21 @@ export function FnoView({ theme }: FnoViewProps) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              {["", "Instrument", "Product", "Lot Size", "Net Qty", "Avg. Price", "Realized P&L", "Status"].map((h) => (
+              {["", "Instrument", "Expiry", "Product", "Lot Size", "Net Qty", "Avg. Price", "Realized P&L", "Status"].map((h) => (
                 <th key={h} style={thStyle(theme)}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <EmptyRow theme={theme} colSpan={8} message="Loading positions…" />
+              <EmptyRow theme={theme} colSpan={9} message="Loading positions…" />
             ) : positions.length === 0 ? (
-              <EmptyRow theme={theme} colSpan={8} message="No F&O positions yet." />
+              <EmptyRow theme={theme} colSpan={9} message="No F&O positions yet." />
             ) : (
               positions.map((p) => {
                 const isOpen = expanded === p.symbol;
                 const greeks = mockGreeksFor(p.symbol);
+                const countdown = p.status === "OPEN" ? formatTimeToExpiry(p.expiry, now) : null;
                 return (
                   <Fragment key={p.symbol}>
                     <tr onClick={() => setExpanded(isOpen ? null : p.symbol)} style={{ cursor: "pointer" }}>
@@ -149,6 +171,14 @@ export function FnoView({ theme }: FnoViewProps) {
                         {isOpen ? <ChevronUp style={{ width: 14, height: 14, color: theme.textMuted }} /> : <ChevronDown style={{ width: 14, height: 14, color: theme.textMuted }} />}
                       </td>
                       <td style={{ ...tdStyle(theme), fontWeight: 700 }}>{instrumentLabel(p)}</td>
+                      <td style={tdStyle(theme)}>
+                        <div>{fmtExpiryDate(p.expiry)}</div>
+                        {countdown && (
+                          <div style={{ fontSize: "11px", fontWeight: 700, color: urgencyColor(theme, countdown.urgency) }}>
+                            {countdown.text} left
+                          </div>
+                        )}
+                      </td>
                       <td style={tdStyle(theme)}>{p.product_type}</td>
                       <td style={tdStyle(theme)}>{p.lot_size ?? "—"}</td>
                       <td style={tdStyle(theme)}>{p.netqty}</td>
@@ -166,7 +196,7 @@ export function FnoView({ theme }: FnoViewProps) {
                     </tr>
                     {isOpen && (
                       <tr key={`${p.symbol}-greeks`}>
-                        <td colSpan={8} style={{ padding: "0 12px 16px", borderBottom: `1px solid ${theme.cardBorder}` }}>
+                        <td colSpan={9} style={{ padding: "0 12px 16px", borderBottom: `1px solid ${theme.cardBorder}` }}>
                           <div style={{
                             background: theme.hover, border: `1px solid ${theme.cardBorder}`, borderRadius: "10px",
                             padding: "14px 16px", display: "flex", flexDirection: "column", gap: "10px",

@@ -72,9 +72,12 @@ export function OverallView({ theme }: OverallViewProps) {
     };
   }, [range]);
 
+  // net_value per bucket includes buying_power (shared cash pool), so it must
+  // be subtracted back out here - otherwise the same cash balance gets
+  // counted once per bucket and the slice proportions come out wrong.
   const allocation = [
-    { name: "Stocks", value: Math.max(0, stocksSummary?.net_value ?? 0), color: "#3b82f6" },
-    { name: "F&O", value: Math.max(0, fnoSummary?.net_value ?? 0), color: "#f59e0b" },
+    { name: "Stocks", value: Math.max(0, (stocksSummary?.net_value ?? 0) - (stocksSummary?.buying_power ?? 0)), color: "#3b82f6" },
+    { name: "F&O", value: Math.max(0, (fnoSummary?.net_value ?? 0) - (fnoSummary?.buying_power ?? 0)), color: "#f59e0b" },
     { name: "Mutual Funds", value: 0, color: "#10b981" },
   ];
 
