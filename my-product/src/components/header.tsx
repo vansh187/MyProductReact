@@ -118,7 +118,7 @@ const NAV_ITEMS = [
       { heading: "Overview", items: [
         { icon: LayoutDashboard, title: "Overall",       desc: "Combined view across all your investments", color: "#6366f1", route: "/dashboard", tab: "Overall" },
         { icon: BarChart2,       title: "Stocks",        desc: "Stock portfolio performance",                color: "#3b82f6", route: "/dashboard", tab: "Stocks" },
-        { icon: PieChart,        title: "Mutual Funds",  desc: "Mutual fund portfolio performance",          color: "#10b981", route: "/dashboard", tab: "Mutual Funds" },
+        { icon: PieChart,        title: "Mutual Funds",  desc: "Mutual fund portfolio performance",          color: "#10b981", route: "/explore/mutualfunds", tab: "Dashboard" },
         { icon: Layers,          title: "F&O",           desc: "Futures & options performance",              color: "#f59e0b", route: "/dashboard", tab: "F&O" },
       ]},
     ],
