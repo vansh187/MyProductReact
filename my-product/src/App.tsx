@@ -9,6 +9,7 @@ import ExploreMutualFunds from './components/ExploreMutualFunds';
 import MutualFundCollection from './components/MutualFundCollection';
 import MutualFundSearch from './components/MutualFundSearch';
 import MutualFundDetail from './components/MutualFundDetail';
+import OverallDashboard from './components/OverallDashboard';
 import { ScrollToTop } from './components/ScrollToTop';
 
 function App() {
@@ -18,6 +19,7 @@ function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/home" element={<HomePage />} />
+        <Route path="/dashboard" element={<OverallDashboard />} />
         <Route path="/explore/mutualfunds" element={<ExploreMutualFunds />} />
         <Route path="/explore/mutualfunds/collection/:key" element={<MutualFundCollection />} />
         <Route path="/explore/mutualfunds/search" element={<MutualFundSearch />} />
