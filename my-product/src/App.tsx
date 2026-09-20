@@ -9,6 +9,9 @@ import ExploreMutualFunds from './components/ExploreMutualFunds';
 import MutualFundCollection from './components/MutualFundCollection';
 import MutualFundSearch from './components/MutualFundSearch';
 import MutualFundDetail from './components/MutualFundDetail';
+import ExploreStocks from './components/ExploreStocks';
+import StockSearch from './components/StockSearch';
+import StockDetail from './components/StockDetail';
 import { ScrollToTop } from './components/ScrollToTop';
 import DashboardLayout from './components/dashboard/DashboardLayout';
 
@@ -24,6 +27,9 @@ function App() {
         <Route path="/explore/mutualfunds/collection/:key" element={<MutualFundCollection />} />
         <Route path="/explore/mutualfunds/search" element={<MutualFundSearch />} />
         <Route path="/explore/mutualfunds/fund/:schemeCode" element={<MutualFundDetail />} />
+        <Route path="/explore/stocks" element={<ExploreStocks />} />
+        <Route path="/explore/stocks/search" element={<StockSearch />} />
+        <Route path="/explore/stocks/:exchange/:symbol" element={<StockDetail />} />
         <Route path="/explore/fno" element={<ExploreFutureOptions />} />
         <Route path="/terminal/fno" element={<FuturesTerminal />} />
         <Route path="/terminal/fno/chain" element={<OptionChain />} />

@@ -5,7 +5,7 @@ import {
   Briefcase, LogOut, Settings, ArrowUpRight, ChevronDown,
   LayoutDashboard,
 } from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
@@ -15,6 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+import { SEARCH_API_BASE, fmtPrice, fmtPct, type CombinedSearchResponse } from "../lib/stocks";
 
 declare global {
   interface Window { Razorpay: any; }
@@ -76,13 +77,13 @@ const NAV_ITEMS = [
     accent: "#3b82f6",
     sections: [
       { heading: "Trade", items: [
-        { icon: BarChart2,  title: "Explore Stocks",  desc: "Browse real-time market data",       color: "#3b82f6", route: null },
+        { icon: BarChart2,  title: "Explore Stocks",  desc: "Browse real-time market data",       color: "#3b82f6", route: "/explore/stocks", tab: "Explore" },
         { icon: TrendingUp, title: "Positions",        desc: "Track your open positions",          color: "#8b5cf6", route: null },
         { icon: FileText,   title: "Orders",           desc: "Manage pending & executed orders",   color: "#f59e0b", route: null },
       ]},
       { heading: "Portfolio", items: [
         { icon: Briefcase, title: "My Holdings",  desc: "View your stock portfolio",           color: "#10b981", route: null },
-        { icon: Bookmark,  title: "Watchlist",    desc: "Monitor your tracked stocks",         color: "#ec4899", route: null },
+        { icon: Bookmark,  title: "Watchlist",    desc: "Monitor your tracked stocks",         color: "#ec4899", route: "/explore/stocks", tab: "Watchlist" },
       ]},
     ],
   },
@@ -229,7 +230,51 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<CombinedSearchResponse | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRootRef = useRef<HTMLDivElement>(null);
+
   const BASE_URL = "https://api.primepiptrade.com";
+
+  // Debounced combined stocks + mutual-funds search, same 400ms cadence used
+  // by MutualFundSearch/StockSearch's own search boxes.
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) { setSearchResults(null); setSearchLoading(false); return; }
+    const controller = new AbortController();
+    const id = setTimeout(() => {
+      setSearchLoading(true);
+      fetch(`${SEARCH_API_BASE}?q=${encodeURIComponent(q)}&limit=6`, { signal: controller.signal })
+        .then(async r => (r.ok ? r.json() : null))
+        .then(body => { if (body) setSearchResults(body as CombinedSearchResponse); })
+        .catch(e => { if (e?.name !== "AbortError") setSearchResults(null); })
+        .finally(() => setSearchLoading(false));
+    }, 400);
+    return () => { clearTimeout(id); controller.abort(); };
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (searchRootRef.current && !searchRootRef.current.contains(e.target as Node)) setSearchOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [searchOpen]);
+
+  function goToStock(symbol: string, exchange: string) {
+    setSearchOpen(false);
+    setSearchQuery("");
+    navigate(`/explore/stocks/${exchange}/${symbol}`);
+  }
+
+  function goToFund(schemeCode: number) {
+    setSearchOpen(false);
+    setSearchQuery("");
+    navigate(`/explore/mutualfunds/fund/${schemeCode}`);
+  }
 
   function handleLogout() {
     const token = localStorage.getItem("authToken");
@@ -434,26 +479,102 @@ export function Header({ isDark, onToggleTheme }: HeaderProps) {
 
           {/* ── Search ── */}
           {(() => { const S = isDark ? TH.dark : TH.light; return (
-          <div style={{
-            display: "flex", alignItems: "center", gap: "8px",
-            height: "36px", width: "220px", padding: "0 12px",
-            background: S.inputBg,
-            border: `1px solid ${searchFocus ? "rgba(59,130,246,0.55)" : S.inputBorder}`,
-            borderRadius: "10px",
-            boxShadow: searchFocus ? "0 0 0 3px rgba(59,130,246,0.1)" : "none",
-            transition: "border-color 0.2s, box-shadow 0.2s",
-          }}>
-            <Search style={{ width: "14px", height: "14px", color: S.textDim, flexShrink: 0 }} />
-            <input
-              type="text"
-              placeholder="Search stocks, funds…"
-              onFocus={() => setSearchFocus(true)}
-              onBlur={() => setSearchFocus(false)}
-              style={{
-                flex: 1, background: "none", border: "none", outline: "none",
-                color: S.text, fontSize: "13px",
-              } as React.CSSProperties}
-            />
+          <div ref={searchRootRef} style={{ position: "relative" }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: "8px",
+              height: "36px", width: "240px", padding: "0 12px",
+              background: S.inputBg,
+              border: `1px solid ${searchFocus ? "rgba(59,130,246,0.55)" : S.inputBorder}`,
+              borderRadius: "10px",
+              boxShadow: searchFocus ? "0 0 0 3px rgba(59,130,246,0.1)" : "none",
+              transition: "border-color 0.2s, box-shadow 0.2s",
+            }}>
+              <Search style={{ width: "14px", height: "14px", color: S.textDim, flexShrink: 0 }} />
+              <input
+                type="text"
+                placeholder="Search stocks, funds…"
+                value={searchQuery}
+                onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
+                onFocus={() => { setSearchFocus(true); setSearchOpen(true); }}
+                onBlur={() => setSearchFocus(false)}
+                style={{
+                  flex: 1, background: "none", border: "none", outline: "none",
+                  color: S.text, fontSize: "13px",
+                } as React.CSSProperties}
+              />
+              {searchQuery && (
+                <button
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => { setSearchQuery(""); setSearchResults(null); }}
+                  style={{ border: "none", background: "transparent", cursor: "pointer", color: S.textDim, display: "flex", padding: 0 }}
+                >
+                  <X style={{ width: "13px", height: "13px" }} />
+                </button>
+              )}
+            </div>
+
+            {searchOpen && searchQuery.trim() && (
+              <div style={{
+                position: "absolute", top: "calc(100% + 8px)", left: 0, right: 0, zIndex: 250,
+                maxHeight: "420px", overflowY: "auto",
+                background: S.panelBg, border: `1px solid ${S.panelBorder}`, borderRadius: "12px",
+                boxShadow: S.panelShadow, padding: "6px",
+              }}>
+                {searchLoading ? (
+                  <div style={{ padding: "16px", textAlign: "center", fontSize: "12px", color: S.textMuted }}>Searching…</div>
+                ) : !searchResults || (searchResults.stocks.length === 0 && searchResults.mutual_funds.length === 0) ? (
+                  <div style={{ padding: "16px", textAlign: "center", fontSize: "12px", color: S.textMuted }}>No matches found.</div>
+                ) : (
+                  <>
+                    {searchResults.stocks.length > 0 && (
+                      <div style={{ marginBottom: searchResults.mutual_funds.length > 0 ? "4px" : 0 }}>
+                        <div style={{ padding: "6px 10px 4px", fontSize: "10px", fontWeight: 700, color: S.textDim, textTransform: "uppercase", letterSpacing: "0.6px" }}>Stocks</div>
+                        {searchResults.stocks.map(s => (
+                          <div
+                            key={`${s.exchange}:${s.symbol}`}
+                            onMouseDown={() => goToStock(s.symbol, s.exchange)}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", padding: "9px 10px", borderRadius: "9px", cursor: "pointer" }}
+                            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = S.hover}
+                            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: "13px", fontWeight: 700, color: S.text }}>{s.symbol} <span style={{ fontWeight: 500, color: S.textDim, fontSize: "11px" }}>· {s.exchange}</span></div>
+                              <div style={{ fontSize: "11px", color: S.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
+                            </div>
+                            <div style={{ textAlign: "right", flexShrink: 0 }}>
+                              <div style={{ fontSize: "12px", fontWeight: 700, color: S.text }}>₹{fmtPrice(s.ltp)}</div>
+                              <div style={{ fontSize: "11px", fontWeight: 600, color: s.change_pct >= 0 ? "#22c55e" : "#ef4444" }}>{fmtPct(s.change_pct)}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {searchResults.mutual_funds.length > 0 && (
+                      <div>
+                        <div style={{ padding: "6px 10px 4px", fontSize: "10px", fontWeight: 700, color: S.textDim, textTransform: "uppercase", letterSpacing: "0.6px" }}>Mutual Funds</div>
+                        {searchResults.mutual_funds.map(f => (
+                          <div
+                            key={f.scheme_code}
+                            onMouseDown={() => goToFund(f.scheme_code)}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", padding: "9px 10px", borderRadius: "9px", cursor: "pointer" }}
+                            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = S.hover}
+                            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div title={f.scheme_name} style={{ fontSize: "13px", fontWeight: 700, color: S.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "220px" }}>{f.scheme_name}</div>
+                              <div style={{ fontSize: "11px", color: S.textMuted }}>{f.fund_house}</div>
+                            </div>
+                            {f.latest_nav != null && (
+                              <div style={{ fontSize: "12px", fontWeight: 700, color: S.text, flexShrink: 0 }}>₹{fmtPrice(f.latest_nav)}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
           ); })()}
 
