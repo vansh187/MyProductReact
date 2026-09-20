@@ -16,6 +16,7 @@ const PERIODS: { key: StockChartPeriod; label: string }[] = [
   { key: "1d", label: "1D" }, { key: "1w", label: "1W" }, { key: "1m", label: "1M" },
   { key: "6m", label: "6M" }, { key: "1y", label: "1Y" }, { key: "5y", label: "5Y" },
 ];
+const SLOW_LOAD_MS = 20000;
 
 // Same closing-price line chart shape as MutualFundDetail's NavChart —
 // candles carry OHLC but a line-on-close is the clearest read at this size.
@@ -123,12 +124,14 @@ export default function StockDetail() {
   const [quote, setQuote] = useState<StockQuote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(true);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [quoteSlow, setQuoteSlow] = useState(false);
   const [notFound, setNotFound] = useState(false);
 
-  const [period, setPeriod] = useState<StockChartPeriod>("1d");
+  const [period, setPeriod] = useState<StockChartPeriod>("1m");
   const [chart, setChart] = useState<StockChartResponse | null>(null);
   const [chartLoading, setChartLoading] = useState(true);
   const [chartError, setChartError] = useState<string | null>(null);
+  const [chartSlow, setChartSlow] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
@@ -143,13 +146,12 @@ export default function StockDetail() {
   useEffect(() => {
     if (!exchange || !symbol) return;
     let cancelled = false;
-    let timedOut = false;
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, 20000);
+    const slowId = window.setTimeout(() => {
+      if (!cancelled) setQuoteSlow(true);
+    }, SLOW_LOAD_MS);
     if (quote == null) setQuoteLoading(true);
+    setQuoteSlow(false);
     setQuoteError(null);
     setNotFound(false);
     fetch(`${STOCK_API_BASE}/${encodeURIComponent(exchange)}/${encodeURIComponent(symbol)}/quote`, { signal: controller.signal })
@@ -163,14 +165,16 @@ export default function StockDetail() {
       })
       .catch(e => {
         if (cancelled) return;
-        if (e?.name === "AbortError" && timedOut) setQuoteError("Timed out while loading this stock.");
-        else if (e?.name !== "AbortError") setQuoteError("Network error while loading this stock.");
+        if (e?.name !== "AbortError") setQuoteError("Network error while loading this stock.");
       })
       .finally(() => {
-        window.clearTimeout(timeoutId);
-        if (!cancelled) setQuoteLoading(false);
+        window.clearTimeout(slowId);
+        if (!cancelled) {
+          setQuoteLoading(false);
+          setQuoteSlow(false);
+        }
       });
-    return () => { cancelled = true; window.clearTimeout(timeoutId); controller.abort(); };
+    return () => { cancelled = true; window.clearTimeout(slowId); controller.abort(); };
   }, [exchange, symbol, retryTick]);
 
   useEffect(() => {
@@ -182,13 +186,12 @@ export default function StockDetail() {
   useEffect(() => {
     if (!exchange || !symbol || notFound) return;
     let cancelled = false;
-    let timedOut = false;
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, 20000);
+    const slowId = window.setTimeout(() => {
+      if (!cancelled) setChartSlow(true);
+    }, SLOW_LOAD_MS);
     setChartLoading(true);
+    setChartSlow(false);
     setChartError(null);
     fetch(`${STOCK_API_BASE}/${encodeURIComponent(exchange)}/${encodeURIComponent(symbol)}/chart?period=${period}`, { signal: controller.signal })
       .then(async r => ({ ok: r.ok, body: await r.json() }))
@@ -199,14 +202,16 @@ export default function StockDetail() {
       })
       .catch(e => {
         if (cancelled) return;
-        if (e?.name === "AbortError" && timedOut) setChartError("Timed out while loading chart data.");
-        else if (e?.name !== "AbortError") setChartError("Network error while loading chart data.");
+        if (e?.name !== "AbortError") setChartError("Network error while loading chart data.");
       })
       .finally(() => {
-        window.clearTimeout(timeoutId);
-        if (!cancelled) setChartLoading(false);
+        window.clearTimeout(slowId);
+        if (!cancelled) {
+          setChartLoading(false);
+          setChartSlow(false);
+        }
       });
-    return () => { cancelled = true; window.clearTimeout(timeoutId); controller.abort(); };
+    return () => { cancelled = true; window.clearTimeout(slowId); controller.abort(); };
   }, [exchange, symbol, period, notFound]);
 
   const retry = useCallback(() => setRetryTick(t => t + 1), []);
@@ -304,7 +309,7 @@ export default function StockDetail() {
 
           <ErrorBoundary fallback={(error, reset) => <SectionErrorFallback error={error} onRetry={reset} T={T} />}>
             {quoteLoading && !quote ? (
-              <LoadingBlock T={T} label="Loading stock…" />
+              <LoadingBlock T={T} label={quoteSlow ? "Still waiting for stock data..." : "Loading stock..."} />
             ) : quoteError && !quote ? (
               <ErrorBlock T={T} message={quoteError} onRetry={retry} />
             ) : quote && (
@@ -387,7 +392,7 @@ export default function StockDetail() {
                   </div>
 
                   {chartLoading ? (
-                    <LoadingBlock T={T} label="Loading chart…" />
+                    <LoadingBlock T={T} label={chartSlow ? "Still waiting for chart data..." : "Loading chart..."} />
                   ) : chartError ? (
                     <ErrorBlock T={T} message={chartError} onRetry={retry} />
                   ) : chart && chartCandles.length === 0 ? (
@@ -457,7 +462,7 @@ export default function StockDetail() {
                 </div>
 
                 {chartLoading ? (
-                  <LoadingBlock T={T} label="Loading chart…" />
+                  <LoadingBlock T={T} label={chartSlow ? "Still waiting for chart data..." : "Loading chart..."} />
                 ) : chartError ? (
                   <ErrorBlock T={T} message={chartError} onRetry={retry} />
                 ) : chart && chartCandles.length === 0 ? (
