@@ -2,6 +2,10 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 interface Props {
   children: ReactNode;
+  // Section-level callers (e.g. a widget inside an already-rendered page)
+  // pass this to render a smaller, in-place fallback instead of the default
+  // full-page one, and to decide what "reset" means (refetch vs reload).
+  fallback?: (error: Error, reset: () => void) => ReactNode;
 }
 
 interface State {
@@ -19,8 +23,13 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error("[ErrorBoundary] Uncaught render error:", error, info.componentStack);
   }
 
+  reset = () => this.setState({ error: null });
+
   render() {
     if (this.state.error) {
+      if (this.props.fallback) {
+        return this.props.fallback(this.state.error, this.reset);
+      }
       return (
         <div
           style={{

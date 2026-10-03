@@ -2,10 +2,11 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Header } from "./header";
 import { Footer } from "./footer";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Bookmark } from "lucide-react";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { DARK, LIGHT, type MFTheme } from "./mutualfunds/theme";
 import { LoadingBlock, ErrorBlock, EmptyBlock, SectionErrorFallback } from "./mutualfunds/StateBlocks";
+import { useIsWishlisted, useWishlist } from "./mutualfunds/useWishlist";
 import {
   MF_API_BASE, extractErrorMessage, fmtPct, fmtNav, fmtDate,
   type MFFundDetail, type MFNavChartResponse, type NavChartPeriod,
@@ -174,6 +175,21 @@ export default function MutualFundDetail() {
 
   const periodLabel = PERIODS.find(p => p.key === period)?.label ?? period;
 
+  const wishlisted = useIsWishlisted(detail?.scheme_code ?? -1);
+  const { toggle: toggleWishlist } = useWishlist();
+  const handleToggleWishlist = useCallback(() => {
+    if (!detail) return;
+    toggleWishlist({
+      scheme_code: detail.scheme_code,
+      scheme_name: detail.scheme_name,
+      fund_house: detail.fund_house,
+      scheme_category: detail.scheme_category,
+      scheme_type: detail.scheme_type,
+      latest_nav: chart?.returns.latest_nav ?? null,
+      return_3y: chart?.returns.return_3y ?? null,
+    });
+  }, [detail, chart, toggleWishlist]);
+
   const hasFundamentals = !!detail && (
     detail.min_sip_amount != null || detail.fund_size_aum != null || detail.expense_ratio != null ||
     detail.rating != null || (detail.holdings != null && detail.holdings !== "unavailable") ||
@@ -241,8 +257,23 @@ export default function MutualFundDetail() {
               <>
                 {/* Header */}
                 <div>
-                  <div style={{ fontSize: "19px", fontWeight: 700, color: T.text, lineHeight: 1.4, marginBottom: "6px" }}>
-                    {detail.scheme_name}
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
+                    <div style={{ fontSize: "19px", fontWeight: 700, color: T.text, lineHeight: 1.4, marginBottom: "6px" }}>
+                      {detail.scheme_name}
+                    </div>
+                    <button
+                      onClick={handleToggleWishlist}
+                      style={{
+                        display: "flex", alignItems: "center", gap: "7px", padding: "8px 14px", borderRadius: "10px",
+                        fontSize: "12px", fontWeight: 700, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
+                        color: wishlisted ? T.activeBorder : T.textBody,
+                        background: wishlisted ? `${T.activeBorder}1f` : T.card,
+                        border: `1px solid ${wishlisted ? T.activeBorder + "55" : T.border}`,
+                      }}
+                    >
+                      <Bookmark style={{ width: "14px", height: "14px" }} fill={wishlisted ? T.activeBorder : "none"} />
+                      {wishlisted ? "In Watchlist" : "Add to Watchlist"}
+                    </button>
                   </div>
                   <div style={{ fontSize: "13px", color: T.textMuted, marginBottom: "10px" }}>{detail.fund_house}</div>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>

@@ -3,12 +3,16 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "./header";
 import { Footer } from "./footer";
 import {
-  Megaphone, Download, FileText, GitCompare, Calculator, SlidersHorizontal, ChevronRight,
+  Megaphone, Download, GitCompare, Calculator, SlidersHorizontal, ChevronRight,
 } from "lucide-react";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { DARK, LIGHT } from "./mutualfunds/theme";
 import { FundCard } from "./mutualfunds/FundCard";
 import { LoadingBlock, ErrorBlock, EmptyBlock, SectionErrorFallback } from "./mutualfunds/StateBlocks";
+import { useWishlist } from "./mutualfunds/useWishlist";
+import { MutualFundDashboard } from "./mutualfunds/Dashboard";
+import { SipCalculatorModal } from "./mutualfunds/SipCalculator";
+import { CompareFundsModal } from "./mutualfunds/CompareFunds";
 import {
   MF_API_BASE, ICON_HINT_MAP, DEFAULT_COLLECTION_ICON, extractErrorMessage,
   type MFExploreResponse,
@@ -19,7 +23,6 @@ const SECTION_TABS = ["Explore", "Dashboard", "SIPs", "Watchlist"];
 const PRODUCTS_AND_TOOLS = [
   { key: "nfo",      label: "NFO Live",             icon: Megaphone },
   { key: "import",   label: "Import funds",          icon: Download },
-  { key: "tax",      label: "File tax",              icon: FileText },
   { key: "compare",  label: "Compare funds",         icon: GitCompare },
   { key: "sip-calc", label: "SIP Calculator",        icon: Calculator },
   { key: "screener", label: "Mutual funds screener", icon: SlidersHorizontal },
@@ -36,6 +39,9 @@ export default function ExploreMutualFunds() {
   const [exploreLoading, setExploreLoading] = useState(true);
   const [exploreError, setExploreError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
+  const { list: wishlist } = useWishlist();
+  const [sipCalculatorOpen, setSipCalculatorOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
 
   useEffect(() => {
     if (!localStorage.getItem("authToken")) navigate("/", { replace: true });
@@ -222,6 +228,10 @@ export default function ExploreMutualFunds() {
                     return (
                       <div
                         key={item.key}
+                        onClick={() => {
+                          if (item.key === "sip-calc") setSipCalculatorOpen(true);
+                          if (item.key === "compare") setCompareOpen(true);
+                        }}
                         style={{
                           display: "flex", alignItems: "center", gap: "12px", padding: "11px 12px",
                           borderTop: `1px solid ${T.border}`, cursor: "pointer", borderRadius: "10px",
@@ -240,8 +250,41 @@ export default function ExploreMutualFunds() {
           </div>
         )}
 
+        {/* ── Watchlist tab ── */}
+        {activeSection === "Watchlist" && (
+          <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
+            <div style={{ fontSize: "17px", fontWeight: 700, color: T.text, marginBottom: "4px" }}>Watchlist</div>
+            <div style={{ fontSize: "12px", color: T.textDim, marginBottom: "20px" }}>
+              {wishlist.length > 0
+                ? `${wishlist.length} fund${wishlist.length !== 1 ? "s" : ""} you're tracking`
+                : "Funds you bookmark show up here"}
+            </div>
+
+            <ErrorBoundary fallback={(error, reset) => <SectionErrorFallback error={error} onRetry={reset} T={T} />}>
+              {wishlist.length === 0 ? (
+                <EmptyBlock T={T} message="Your watchlist is empty. Tap the bookmark icon on any fund's card or detail page to add it here." />
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+                  {wishlist.map(fund => (
+                    <FundCard key={fund.scheme_code} fund={fund} T={T} onClick={() => navigate(`/explore/mutualfunds/fund/${fund.scheme_code}`)} />
+                  ))}
+                </div>
+              )}
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {/* ── Dashboard tab ── */}
+        {activeSection === "Dashboard" && (
+          <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
+            <ErrorBoundary fallback={(error, reset) => <SectionErrorFallback error={error} onRetry={reset} T={T} />}>
+              <MutualFundDashboard T={T} />
+            </ErrorBoundary>
+          </div>
+        )}
+
         {/* ── Other tabs (not built yet) ── */}
-        {activeSection !== "Explore" && (
+        {activeSection === "SIPs" && (
           <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
             <div style={{
               display: "flex", alignItems: "center", justifyContent: "center",
@@ -254,6 +297,14 @@ export default function ExploreMutualFunds() {
         )}
 
       </main>
+
+      {sipCalculatorOpen && (
+        <SipCalculatorModal T={T} onClose={() => setSipCalculatorOpen(false)} />
+      )}
+
+      {compareOpen && (
+        <CompareFundsModal T={T} onClose={() => setCompareOpen(false)} />
+      )}
 
       <Footer isDark={isDark} />
     </div>

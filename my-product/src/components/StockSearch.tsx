@@ -5,18 +5,16 @@ import { Footer } from "./footer";
 import { ChevronLeft, Search, X, ChevronDown, Check, SlidersHorizontal } from "lucide-react";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { DARK, LIGHT, type MFTheme } from "./mutualfunds/theme";
-import { FundCard } from "./mutualfunds/FundCard";
 import { LoadingBlock, ErrorBlock, EmptyBlock, SectionErrorFallback } from "./mutualfunds/StateBlocks";
-import { MF_API_BASE, extractErrorMessage, type MFFundSummary, type MFCategoriesResponse } from "../lib/mutualfunds";
+import { StockCard } from "./stocks/StockCard";
+import { STOCK_API_BASE, extractErrorMessage, type StockSummary, type StockFacetsResponse } from "../lib/stocks";
 
 const PAGE_SIZE = 20;
 
-// A single-select, searchable filter dropdown — replaces a bare horizontal
-// scroll of every category/fund-house value (unusable once there are dozens
-// of them) with the pattern most brokerage/investing apps use today: a
-// compact trigger that shows the active value, a searchable list in a
-// popover, and the applied filter surfaced separately so it's obvious what's
-// actually affecting the results.
+// Same searchable single-select filter dropdown pattern as
+// MutualFundSearch.tsx's FilterDropdown — kept local rather than shared
+// since the two screens' facets (category/fund-house vs exchange/sector)
+// have no other overlap.
 function FilterDropdown({
   label, options, selected, onSelect, T,
 }: {
@@ -61,7 +59,7 @@ function FilterDropdown({
 
       {open && (
         <div style={{
-          position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 100, width: "300px",
+          position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 100, width: "260px",
           background: T.cardSolid, border: `1px solid ${T.borderMid}`, borderRadius: "12px",
           boxShadow: "0 16px 40px rgba(0,0,0,0.35)", padding: "10px", display: "flex", flexDirection: "column", gap: "8px",
         }}>
@@ -137,20 +135,20 @@ function AppliedFilterPill({ label, onClear, T }: { label: string; onClear: () =
   );
 }
 
-export default function MutualFundSearch() {
+export default function StockSearch() {
   const navigate = useNavigate();
   const [isDark, setIsDark] = useState(() => localStorage.getItem("theme") !== "light");
   const T = isDark ? DARK : LIGHT;
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [category, setCategory] = useState<string | null>(null);
-  const [fundHouse, setFundHouse] = useState<string | null>(null);
+  const [exchange, setExchange] = useState<string | null>(null);
+  const [sector, setSector] = useState<string | null>(null);
 
-  const [facets, setFacets] = useState<MFCategoriesResponse | null>(null);
+  const [facets, setFacets] = useState<StockFacetsResponse | null>(null);
   const [facetsError, setFacetsError] = useState<string | null>(null);
 
-  const [results, setResults] = useState<MFFundSummary[]>([]);
+  const [results, setResults] = useState<StockSummary[]>([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -169,21 +167,19 @@ export default function MutualFundSearch() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${MF_API_BASE}/categories`, { signal: controller.signal })
+    fetch(`${STOCK_API_BASE}/facets`, { signal: controller.signal })
       .then(async r => ({ ok: r.ok, body: await r.json() }))
       .then(({ ok, body }) => {
         if (!ok) { setFacetsError(extractErrorMessage(body, "Failed to load filters.")); return; }
-        setFacets(body as MFCategoriesResponse);
+        setFacets(body as StockFacetsResponse);
       })
       .catch(e => { if (e?.name !== "AbortError") setFacetsError("Network error while loading filters."); });
     return () => controller.abort();
   }, []);
 
   // Reset pagination during render (not in an effect) whenever the filters
-  // change, so the fetch effect below never fires once with the new filters
-  // but a stale page number — see the identical pattern/comment in
-  // MutualFundCollection.tsx for why an effect-based reset isn't enough.
-  const filterKey = `${debouncedQuery}|${category ?? ""}|${fundHouse ?? ""}`;
+  // change — same pattern/reasoning as MutualFundSearch.tsx.
+  const filterKey = `${debouncedQuery}|${exchange ?? ""}|${sector ?? ""}`;
   const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
@@ -198,19 +194,19 @@ export default function MutualFundSearch() {
     if (page === 1) setLoading(true); else setLoadingMore(true);
     const params = new URLSearchParams();
     if (debouncedQuery) params.set("q", debouncedQuery);
-    if (category) params.set("category", category);
-    if (fundHouse) params.set("fund_house", fundHouse);
+    if (exchange) params.set("exchange", exchange);
+    if (sector) params.set("sector", sector);
     params.set("page", String(page));
     params.set("page_size", String(PAGE_SIZE));
-    fetch(`${MF_API_BASE}/search?${params.toString()}`, { signal: controller.signal })
+    fetch(`${STOCK_API_BASE}/search?${params.toString()}`, { signal: controller.signal })
       .then(async r => ({ ok: r.ok, body: await r.json() }))
       .then(({ ok, body }) => {
         if (cancelled) return;
         if (!ok) {
-          setError(extractErrorMessage(body, "Failed to search mutual funds."));
+          setError(extractErrorMessage(body, "Failed to search stocks."));
           return;
         }
-        const list = Array.isArray(body) ? (body as MFFundSummary[]) : [];
+        const list = Array.isArray(body) ? (body as StockSummary[]) : [];
         setResults(prev => (page === 1 ? list : [...prev, ...list]));
         setHasMore(list.length === PAGE_SIZE);
         setError(null);
@@ -218,7 +214,7 @@ export default function MutualFundSearch() {
       .catch(e => { if (!cancelled && e?.name !== "AbortError") setError("Network error while searching."); })
       .finally(() => { if (!cancelled) { setLoading(false); setLoadingMore(false); } });
     return () => { cancelled = true; controller.abort(); };
-  }, [debouncedQuery, category, fundHouse, page, retryTick]);
+  }, [debouncedQuery, exchange, sector, page, retryTick]);
 
   const retry = useCallback(() => { setPage(1); setRetryTick(t => t + 1); }, []);
 
@@ -261,7 +257,7 @@ export default function MutualFundSearch() {
             >
               <ChevronLeft size={18} />
             </button>
-            <span style={{ fontSize: "16px", fontWeight: 700, color: T.text }}>All Mutual Funds</span>
+            <span style={{ fontSize: "16px", fontWeight: 700, color: T.text }}>All Stocks</span>
           </div>
         </div>
 
@@ -276,7 +272,7 @@ export default function MutualFundSearch() {
             <input
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="Search mutual funds by name…"
+              placeholder="Search stocks by name or symbol…"
               style={{
                 flex: 1, border: "none", outline: "none", background: "transparent",
                 fontSize: "13px", color: T.text,
@@ -301,16 +297,16 @@ export default function MutualFundSearch() {
                 <span style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: 700, color: T.textDim }}>
                   <SlidersHorizontal style={{ width: "13px", height: "13px" }} /> Filters
                 </span>
-                <FilterDropdown label="Category" options={facets.categories} selected={category} onSelect={setCategory} T={T} />
-                <FilterDropdown label="Fund House" options={facets.fund_houses} selected={fundHouse} onSelect={setFundHouse} T={T} />
+                <FilterDropdown label="Exchange" options={facets.exchanges} selected={exchange} onSelect={setExchange} T={T} />
+                <FilterDropdown label="Sector" options={facets.sectors} selected={sector} onSelect={setSector} T={T} />
               </div>
 
-              {(category || fundHouse) && (
+              {(exchange || sector) && (
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                  {category && <AppliedFilterPill label={category} onClear={() => setCategory(null)} T={T} />}
-                  {fundHouse && <AppliedFilterPill label={fundHouse} onClear={() => setFundHouse(null)} T={T} />}
+                  {exchange && <AppliedFilterPill label={exchange} onClear={() => setExchange(null)} T={T} />}
+                  {sector && <AppliedFilterPill label={sector} onClear={() => setSector(null)} T={T} />}
                   <button
-                    onClick={() => { setCategory(null); setFundHouse(null); }}
+                    onClick={() => { setExchange(null); setSector(null); }}
                     style={{ fontSize: "12px", fontWeight: 600, color: T.textMuted, background: "transparent", border: "none", cursor: "pointer", padding: "6px 4px" }}
                   >
                     Clear all
@@ -326,12 +322,12 @@ export default function MutualFundSearch() {
             ) : error ? (
               <ErrorBlock T={T} message={error} onRetry={retry} />
             ) : results.length === 0 ? (
-              <EmptyBlock T={T} message="No mutual funds match your search." />
+              <EmptyBlock T={T} message="No stocks match your search." />
             ) : (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
-                  {results.map(fund => (
-                    <FundCard key={fund.scheme_code} fund={fund} T={T} onClick={() => navigate(`/explore/mutualfunds/fund/${fund.scheme_code}`)} />
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px" }}>
+                  {results.map(s => (
+                    <StockCard key={`${s.exchange}:${s.symbol}`} stock={s} T={T} onClick={() => navigate(`/explore/stocks/${s.exchange}/${s.symbol}`)} />
                   ))}
                 </div>
                 {hasMore && (

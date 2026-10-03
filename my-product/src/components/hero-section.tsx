@@ -71,7 +71,7 @@ const funds = [
 ];
 
 const quickActions = [
-  { icon: BarChart2,    title: "Explore Stocks", desc: "Browse & analyze stock markets in real time",  color: "#3b82f6", route: null        },
+  { icon: BarChart2,    title: "Explore Stocks", desc: "Browse & analyze stock markets in real time",  color: "#3b82f6", route: "/explore/stocks" },
   { icon: Layers,       title: "Explore F&O",    desc: "Trade Futures & Options on indices and stocks", color: "#8b5cf6", route: "/explore/fno" },
   { icon: TrendingUp,   title: "View Holdings",  desc: "Check your current investment portfolio",       color: "#10b981", route: null        },
   { icon: PieChart,     title: "Start SIP",      desc: "Begin systematic investment plans easily",      color: "#ec4899", route: null        },
