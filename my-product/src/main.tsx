@@ -8,7 +8,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
-    <GoogleOAuthProvider clientId="686464101733-gffnqf60c81d0t097c5vjbpjsmvr9g1e.apps.googleusercontent.com">
+    <GoogleOAuthProvider clientId="404760269080-m9r079j7h2lpq9sbunaeeovj9hteaq4s.apps.googleusercontent.com">
       <BrowserRouter>
         <App />
       </BrowserRouter>
