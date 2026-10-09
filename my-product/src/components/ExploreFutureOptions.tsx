@@ -4,6 +4,9 @@ import { Header } from "./header";
 import { Footer } from "./footer";
 import { BarChart2, TrendingUp, Activity, Layers, Terminal, List, Link2, X } from "lucide-react";
 import { isoExpiryToDisplay, SUPPORTED_UNDERLYING_SLUGS } from "../lib/fno";
+import { useIndices } from "../lib/indicesStream";
+import { prefetchOptionChain } from "../lib/optionChainStream";
+import { mark } from "../lib/perf";
 
 const BASE_URL = "https://api.primepiptrade.com";
 
@@ -248,40 +251,12 @@ export default function ExploreFutureOptions() {
   };
   useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); }, []);
 
-  const [marketData, setMarketData] = useState<MarketData | null>(() => {
-    try {
-      const cached = localStorage.getItem("cachedMarketData");
-      if (cached) return JSON.parse(cached) as MarketData;
-    } catch { /* ignore */ }
-    return null;
-  });
+  // Shared live indices stream (src/lib/indicesStream.ts) — no polling.
+  const { indices: liveIndices, marketStatus } = useIndices();
+  const marketData: MarketData = { market_status: marketStatus ?? "", indices: liveIndices };
 
   useEffect(() => {
     if (!localStorage.getItem("authToken")) navigate("/", { replace: true });
-  }, []);
-
-  useEffect(() => {
-    let controller = new AbortController();
-
-    const fetchData = () => {
-      controller.abort();
-      controller = new AbortController();
-      fetch(`${BASE_URL}/api/market/indices`, { signal: controller.signal })
-        .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
-        .then((d: unknown) => {
-          if (d && typeof d === "object" && "indices" in d) {
-            const data = d as MarketData;
-            data.indices = Array.isArray(data.indices) ? data.indices : [];
-            setMarketData(data);
-            localStorage.setItem("cachedMarketData", JSON.stringify(data));
-          }
-        })
-        .catch(e => { if (e?.name !== "AbortError") console.error("[market/indices]", e); });
-    };
-
-    fetchData();
-    const id = setInterval(fetchData, 10_000);
-    return () => { clearInterval(id); controller.abort(); };
   }, []);
 
   const apiIndices = Array.isArray(marketData?.indices) ? marketData!.indices : [];
@@ -441,6 +416,7 @@ export default function ExploreFutureOptions() {
   function openIndex(idx: typeof INDICES[number], destination: "chain" | "terminal") {
     setHoveredIndex(null);
     const live = findApiIndex(apiIndices, idx.matchNames);
+    if (destination === "chain") mark("chain:click");
     navigate(destination === "chain" ? "/terminal/fno/chain" : "/terminal/fno", {
       state: {
         indexData: {
@@ -470,6 +446,7 @@ export default function ExploreFutureOptions() {
     if (!isPositionOpenable(p)) return;
     const cfg = INDICES.find(idx => idx.symbol === p.underlying);
     const live = cfg ? findApiIndex(apiIndices, cfg.matchNames) : undefined;
+    mark("chain:click");
     navigate("/terminal/fno/chain", {
       state: {
         indexData: {
@@ -572,7 +549,7 @@ export default function ExploreFutureOptions() {
                 <div
                   key={idx.key}
                   style={{ position: "relative", flex: 1 }}
-                  onMouseEnter={() => showHoverCard(idx.key)}
+                  onMouseEnter={() => { showHoverCard(idx.key); prefetchOptionChain(SUPPORTED_UNDERLYING_SLUGS[normalizeName(idx.symbol)]); }}
                   onMouseLeave={hideHoverCard}
                 >
                   {/* Index tab pill */}

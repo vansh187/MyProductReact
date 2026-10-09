@@ -153,6 +153,20 @@
   animation: dotBlink 1s ease-in-out infinite;
 }
 
+/* Option chain price flash on tick (toggled directly on the DOM node). */
+@keyframes tickUp {
+  from { background-color: rgba(34, 197, 94, 0.28); }
+  to { background-color: transparent; }
+}
+
+@keyframes tickDown {
+  from { background-color: rgba(239, 68, 68, 0.28); }
+  to { background-color: transparent; }
+}
+
+.tick-up { animation: tickUp 300ms ease-out; }
+.tick-down { animation: tickDown 300ms ease-out; }
+
 .animate-ticker-up {
   animation: tickerUp 28s linear infinite;
   display: flex;

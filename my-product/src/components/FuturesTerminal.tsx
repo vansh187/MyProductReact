@@ -7,8 +7,11 @@ import {
 } from "lucide-react";
 import {
   BASE_URL, normalizeName, INDEX_MATCH_VARIANTS, SUPPORTED_UNDERLYING_SLUGS,
-  type Candle, type MarketData, type IndexData,
+  type Candle, type IndexData,
 } from "../lib/fno";
+import { useIndicesSelector, findIndex } from "../lib/indicesStream";
+import { prefetchOptionChain } from "../lib/optionChainStream";
+import { mark } from "../lib/perf";
 
 const DARK = {
   bg:           "#0d1117",
@@ -685,26 +688,19 @@ export default function FuturesTerminal() {
   // intraday candles were captured client-side today (see CandleChart).
   const [daySummary, setDaySummary] = useState<DaySummary | null>(null);
 
+  // Live index quote from the app-wide indices stream (src/lib/indicesStream.ts).
+  const matchVariants = INDEX_MATCH_VARIANTS[symbolKey] ?? [symbolKey];
+  const matchedIndex = useIndicesSelector(s => findIndex(s.indices, matchVariants));
+  // Only real stream frames feed the candles — not the cached/REST first paint.
+  const isLive = useIndicesSelector(s => s.live);
+
   useEffect(() => {
-    let cancelled = false;
-    const matchVariants = INDEX_MATCH_VARIANTS[symbolKey] ?? [symbolKey];
-
-    fetch(`${BASE_URL}/api/market/indices`)
-      .then(res => res.json())
-      .then((data: MarketData) => {
-        if (cancelled) return;
-        const matched = data.indices?.find(i => {
-          const normalized = normalizeName(i.name || "");
-          return matchVariants.some(v => normalized === v || normalized.includes(v));
-        });
-        if (matched && matched.open != null && matched.high != null && matched.low != null) {
-          setDaySummary({ open: matched.open, high: matched.high, low: matched.low, value: matched.value });
-        }
-      })
-      .catch(e => console.error("[FuturesTerminal] Failed to fetch day summary:", e));
-
-    return () => { cancelled = true; };
-  }, [symbolKey]);
+    if (!matchedIndex) return;
+    setLivePrice({ value: matchedIndex.value, change: matchedIndex.change, change_pct: matchedIndex.change_pct });
+    if (matchedIndex.open != null && matchedIndex.high != null && matchedIndex.low != null) {
+      setDaySummary({ open: matchedIndex.open, high: matchedIndex.high, low: matchedIndex.low, value: matchedIndex.value });
+    }
+  }, [matchedIndex]);
 
   // One-shot backfill from the historical-candles endpoint, for whenever the
   // chart is opened with nothing already captured client-side today (e.g.
@@ -791,65 +787,58 @@ export default function FuturesTerminal() {
   // entire (cached) day's history with a single-tick candle — this is what
   // made candles disappear on refresh. Building on top of the cached state
   // instead means history survives refreshes and remounts.
+  //
+  // Ticks come from the shared indices stream; this effect runs once per
+  // frame that changed the matched index. The stream itself is never closed
+  // here (the old per-component stream closed itself for good on the first
+  // error, leaving the terminal frozen).
   useEffect(() => {
-    const matchVariants = INDEX_MATCH_VARIANTS[symbolKey] ?? [symbolKey];
-    const es = new EventSource(`${BASE_URL}/api/market/indices/stream`);
     // ~1 trading day of 20s candles, with headroom — bounds memory/localStorage size.
     const MAX_CANDLES = 1500;
+    if (!matchedIndex || !isLive) return;
 
-    es.onmessage = (event) => {
-      try {
-        const data: MarketData = JSON.parse(event.data);
-        const matchedIndex = data.indices.find(i => {
-          const normalized = normalizeName(i.name || "");
-          return matchVariants.some(v => normalized === v || normalized.includes(v));
+    // Don't bucket ticks that arrive outside the 09:15–15:30 session
+    // (e.g. simulator ticks right at market open/close) into a candle —
+    // keeps the x-axis strictly to real market hours.
+    const now = Date.now();
+    if (!isWithinMarketHours(now)) return;
+
+    const price = matchedIndex.value;
+    const candleTime = Math.floor(now / CHART_TIMEFRAME_MS) * CHART_TIMEFRAME_MS;
+
+    setCandles(prev => {
+      const last = prev[prev.length - 1];
+      let next: Candle[];
+      if (last && last.timestamp === candleTime) {
+        next = prev.slice(0, -1).concat({
+          ...last,
+          high: Math.max(last.high, price),
+          low: Math.min(last.low, price),
+          close: price,
         });
-        if (!matchedIndex) return;
-
-        setLivePrice({ value: matchedIndex.value, change: matchedIndex.change, change_pct: matchedIndex.change_pct });
-
-        // Don't bucket ticks that arrive outside the 09:15–15:30 session
-        // (e.g. simulator ticks right at market open/close) into a candle —
-        // keeps the x-axis strictly to real market hours.
-        const now = Date.now();
-        if (!isWithinMarketHours(now)) return;
-
-        const price = matchedIndex.value;
-        const candleTime = Math.floor(now / CHART_TIMEFRAME_MS) * CHART_TIMEFRAME_MS;
-
-        setCandles(prev => {
-          const last = prev[prev.length - 1];
-          let next: Candle[];
-          if (last && last.timestamp === candleTime) {
-            next = prev.slice(0, -1).concat({
-              ...last,
-              high: Math.max(last.high, price),
-              low: Math.min(last.low, price),
-              close: price,
-            });
-          } else {
-            next = [...prev, { timestamp: candleTime, open: price, high: price, low: price, close: price }];
-          }
-          if (next.length > MAX_CANDLES) next = next.slice(next.length - MAX_CANDLES);
-          try {
-            localStorage.setItem(cacheKey, JSON.stringify(next));
-          } catch (e) {
-            console.error("[FuturesTerminal] Failed to persist candles:", e);
-          }
-          return next;
-        });
-      } catch (e) {
-        console.error("[FuturesTerminal] Stream parse error:", e);
+      } else {
+        next = [...prev, { timestamp: candleTime, open: price, high: price, low: price, close: price }];
       }
-    };
+      if (next.length > MAX_CANDLES) next = next.slice(next.length - MAX_CANDLES);
+      // Persisting on every tick (~4/s) is wasteful; writing when a new
+      // bucket opens (plus on unmount, below) keeps the cache current enough.
+      if (next.length !== prev.length) {
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify(next));
+        } catch (e) {
+          console.error("[FuturesTerminal] Failed to persist candles:", e);
+        }
+      }
+      return next;
+    });
+  }, [matchedIndex, isLive, cacheKey]);
 
-    es.onerror = () => {
-      console.error("[FuturesTerminal] EventSource error - stream closed");
-      es.close();
-    };
-
-    return () => es.close();
-  }, [symbolKey, cacheKey]);
+  // Flush the in-progress candle to the cache when leaving the terminal.
+  const candlesRef = useRef(candles);
+  candlesRef.current = candles;
+  useEffect(() => () => {
+    try { localStorage.setItem(cacheKey, JSON.stringify(candlesRef.current)); } catch { /* ignore */ }
+  }, [cacheKey]);
 
   // Keep a panned-back view frozen on the same window as new candles arrive,
   // instead of silently drifting forward. Only auto-follows live when the
@@ -947,7 +936,9 @@ export default function FuturesTerminal() {
                 </div>
               </div>
               <button
-                onClick={() => navigate("/terminal/fno/chain", { state: { indexData: { ...indexData, ...livePrice } } })}
+                onMouseEnter={() => prefetchOptionChain(SUPPORTED_UNDERLYING_SLUGS[symbolKey])}
+                onFocus={() => prefetchOptionChain(SUPPORTED_UNDERLYING_SLUGS[symbolKey])}
+                onClick={() => { mark("chain:click"); navigate("/terminal/fno/chain", { state: { indexData: { ...indexData, ...livePrice } } }); }}
                 title="Open real-time option chain"
                 style={{
                   display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px",
