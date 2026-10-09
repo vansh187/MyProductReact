@@ -4,6 +4,7 @@ import './LandingPage.css';
 import { useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import { Footer } from './footer';
+import { useIndices } from '../lib/indicesStream';
 
 interface MarketIndex { name: string; value: number; change_pct: number; }
 interface MarketData  { market_status: string; indices: MarketIndex[]; }
@@ -47,36 +48,9 @@ export default function LandingPage() {
     }
   };
 
-  const [marketData, setMarketData] = useState<MarketData | null>(() => {
-    try {
-      const cached = localStorage.getItem("cachedMarketData");
-      if (cached) return JSON.parse(cached) as MarketData;
-    } catch { /* ignore */ }
-    return null;
-  });
-
-  useEffect(() => {
-    let controller = new AbortController();
-
-    const fetchMarket = () => {
-      controller.abort();
-      controller = new AbortController();
-      fetch(`${BASE_URL}/api/market/indices`, { signal: controller.signal })
-        .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
-        .then((d: unknown) => {
-          if (d && typeof d === "object" && "indices" in d) {
-            const data = d as MarketData;
-            data.indices = Array.isArray(data.indices) ? data.indices : [];
-            setMarketData(data);
-            localStorage.setItem("cachedMarketData", JSON.stringify(data));
-          }
-        })
-        .catch(e => { if (e?.name !== "AbortError") console.error("[market/indices]", e); });
-    };
-    fetchMarket();
-    const id = setInterval(fetchMarket, 10_000);
-    return () => { clearInterval(id); controller.abort(); };
-  }, []);
+  // Shared live indices stream (src/lib/indicesStream.ts) — no polling.
+  const { indices: liveIndices, marketStatus } = useIndices();
+  const marketData: MarketData = { market_status: marketStatus ?? "", indices: liveIndices };
 
   useEffect(() => {
     localStorage.setItem("theme", isDark ? "dark" : "light");

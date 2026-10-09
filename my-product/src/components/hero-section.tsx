@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { TrendingUp, TrendingDown, Activity, PieChart, BarChart2, BookmarkPlus, Shield, Zap, Globe, ChevronRight, Layers } from "lucide-react";
+import { useIndices } from "../lib/indicesStream";
+import { UpdatedAgo } from "./UpdatedAgo";
 
 const BASE_URL = "https://api.primepiptrade.com";
 
@@ -176,37 +178,9 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
     return () => es.close();
   }, []);
 
-  const [marketData, setMarketData] = useState<MarketData | null>(() => {
-    try {
-      const cached = localStorage.getItem("cachedMarketData");
-      if (cached) return JSON.parse(cached) as MarketData;
-    } catch { /* ignore */ }
-    return null;
-  });
-
-  useEffect(() => {
-    let controller = new AbortController();
-
-    const fetchData = () => {
-      controller.abort();
-      controller = new AbortController();
-      fetch(`${BASE_URL}/api/market/indices`, { signal: controller.signal })
-        .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
-        .then((d: unknown) => {
-          if (d && typeof d === "object" && "indices" in d) {
-            const data = d as MarketData;
-            data.indices = Array.isArray(data.indices) ? data.indices : [];
-            setMarketData(data);
-            localStorage.setItem("cachedMarketData", JSON.stringify(data));
-          }
-        })
-        .catch(e => { if (e?.name !== "AbortError") console.error("[market/indices]", e); });
-    };
-
-    fetchData();
-    const id = setInterval(fetchData, 10_000);
-    return () => { clearInterval(id); controller.abort(); };
-  }, []);
+  // Shared live indices stream (src/lib/indicesStream.ts) — no polling.
+  const { indices: liveIndices, marketStatus } = useIndices();
+  const marketData: MarketData = { market_status: marketStatus ?? "", indices: liveIndices };
 
   const marketOpen = marketData?.market_status?.toLowerCase() === "open";
   const statusColor = marketOpen ? "#4ade80" : "#f87171";
@@ -301,6 +275,7 @@ export function HeroSection({ isDark }: { isDark: boolean }) {
                 style={{ width: "7px", height: "7px", borderRadius: "50%", background: statusColor, boxShadow: `0 0 5px ${statusColor}`, display: "inline-block" }}
               />
               <span style={{ fontSize: "12px", fontWeight: 700, color: T.text }}>{marketOpen ? "Live Prices" : "Last Prices"}</span>
+              <UpdatedAgo color={T.textDim} />
             </div>
             <div style={{ height: "172px", overflow: "hidden" }}>
               {tickerRows.length > 0 ? (

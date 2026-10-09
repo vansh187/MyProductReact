@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useLayoutEffect, useRef, memo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Header } from "./header";
 import { Footer } from "./footer";
@@ -8,8 +8,14 @@ import {
   LOT_SIZE_MAP, DEFAULT_LOT_SIZE, STRIKE_STEP_MAP, DEFAULT_STRIKE_STEP,
   CURRENT_EXPIRY, SUPPORTED_UNDERLYING_SLUGS, buildOptionSymbol, extractErrorMessage,
   isoExpiryToDisplay,
-  type MarketData, type IndexData, type OptionChainResponse,
+  type IndexData,
 } from "../lib/fno";
+import { useIndicesSelector, findIndex } from "../lib/indicesStream";
+import {
+  getChainFeed, useChainFeed, useChainMeta, useLeg,
+  type ChainFeed, type OptionLeg,
+} from "../lib/optionChainStream";
+import { mark, measure } from "../lib/perf";
 
 const DARK = {
   bg:           "#0d1117",
@@ -44,6 +50,144 @@ interface OrderTicket {
   side: OrderSide;
 }
 
+type Theme = typeof DARK;
+type OnOrder = (strike: number, optionType: "CE" | "PE", side: OrderSide, leg: OptionLeg | undefined) => void;
+
+// Display rule from the backend contract: a null price/IV is "none" and
+// shows "–". Never substitute spot or any other value.
+const NONE = "–";
+const fmtOi = (n: number | null | undefined) => (n != null ? n.toLocaleString("en-IN") : NONE);
+const fmtIv = (n: number | null | undefined) => (n != null ? (n * 100).toFixed(1) : NONE);
+const fmtPx = (n: number | null | undefined) => (n != null ? `₹${n.toFixed(2)}` : NONE);
+
+// LTP cell with a 300 ms green/red flash on change — a CSS class toggle on
+// the DOM node, no extra React state.
+function LtpCell({ leg, color, T }: { leg: OptionLeg | undefined; color: string; T: Theme }) {
+  const ref = useRef<HTMLTableCellElement>(null);
+  const prev = useRef<number | null | undefined>(leg?.ltp);
+  const ltp = leg?.ltp;
+
+  useEffect(() => {
+    const el = ref.current;
+    const before = prev.current;
+    prev.current = ltp;
+    if (!el || ltp == null || before == null || ltp === before) return;
+    el.classList.remove("tick-up", "tick-down");
+    void el.offsetWidth; // restart the animation
+    el.classList.add(ltp > before ? "tick-up" : "tick-down");
+  }, [ltp]);
+
+  const stale = !!leg?.ltp_stale;
+  return (
+    <td
+      ref={ref}
+      title={stale ? "No trade today" : undefined}
+      style={{ padding: "8px", color: stale ? T.textDim : color, fontWeight: 700, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}
+    >
+      {fmtPx(ltp)}
+      {stale && (leg?.bid != null || leg?.ask != null) && (
+        <div style={{ fontSize: "9px", fontWeight: 500, color: T.textDim }}>
+          {fmtPx(leg?.bid)} / {fmtPx(leg?.ask)}
+        </div>
+      )}
+    </td>
+  );
+}
+
+// One side (CE or PE) of a strike row. Subscribes to a single token, so a
+// tick on that leg re-renders these four cells and nothing else.
+function LegCells({ feed, token, side, strike, underlyingDisplay, onOrder, T }: {
+  feed: ChainFeed | null; token: string | null; side: "CE" | "PE"; strike: number;
+  underlyingDisplay: string; onOrder: OnOrder; T: Theme;
+}) {
+  const leg = useLeg(feed, token);
+  const cell = { padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" as const };
+
+  const order = (
+    <td style={{ padding: "6px 4px", borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
+      {leg ? (
+        <div style={{ display: "flex", gap: "4px", justifyContent: "center" }}>
+          <button
+            onClick={() => onOrder(strike, side, "BUY", feed?.getLeg(token))}
+            title={`Buy ${underlyingDisplay} ${strike} ${side}`}
+            style={{
+              padding: "4px 8px", fontSize: "10px", fontWeight: 700, borderRadius: "5px",
+              background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.4)",
+              color: "#22c55e", cursor: "pointer",
+            }}
+          >
+            Buy
+          </button>
+          <button
+            onClick={() => onOrder(strike, side, "SELL", feed?.getLeg(token))}
+            title={`Sell ${underlyingDisplay} ${strike} ${side}`}
+            style={{
+              padding: "4px 8px", fontSize: "10px", fontWeight: 700, borderRadius: "5px",
+              background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)",
+              color: "#ef4444", cursor: "pointer",
+            }}
+          >
+            Sell
+          </button>
+        </div>
+      ) : (
+        <span style={{ color: T.textDim, fontSize: "10px" }}>No quote</span>
+      )}
+    </td>
+  );
+  const ltp = <LtpCell leg={leg} color={side === "CE" ? "#22c55e" : "#ef4444"} T={T} />;
+  const iv = <td style={cell}>{fmtIv(leg?.iv)}</td>;
+  const oi = <td style={cell}>{fmtOi(leg?.oi)}</td>;
+
+  return side === "CE"
+    ? <>{oi}{iv}{ltp}{order}</>
+    : <>{order}{ltp}{iv}{oi}</>;
+}
+
+// Re-renders only when its own props change (ATM moving, theme) — never on
+// a price tick; ticks go straight to LegCells.
+const StrikeRow = memo(function StrikeRow({ feed, strike, ceToken, peToken, isAtm, underlyingDisplay, onOrder, T }: {
+  feed: ChainFeed | null; strike: number; ceToken: string | null; peToken: string | null;
+  isAtm: boolean; underlyingDisplay: string; onOrder: OnOrder; T: Theme;
+}) {
+  return (
+    <tr style={{ background: isAtm ? "rgba(59,130,246,0.06)" : "transparent" }}>
+      <LegCells feed={feed} token={ceToken} side="CE" strike={strike} underlyingDisplay={underlyingDisplay} onOrder={onOrder} T={T} />
+      <td style={{
+        padding: "8px 12px", color: isAtm ? "#3b82f6" : T.text, fontWeight: 700,
+        borderBottom: `1px solid ${T.border}`, textAlign: "center", background: T.card,
+        borderLeft: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`,
+      }}>
+        {strike.toLocaleString("en-IN")}
+        {isAtm && <div style={{ fontSize: "8px", color: "#3b82f6", fontWeight: 700 }}>ATM</div>}
+      </td>
+      <LegCells feed={feed} token={peToken} side="PE" strike={strike} underlyingDisplay={underlyingDisplay} onOrder={onOrder} T={T} />
+    </tr>
+  );
+});
+
+// Header spot/change% from the shared indices stream. Its own component so
+// index ticks re-render this block only, not the chain table.
+function LiveSpot({ symbolKey, fallback, T }: { symbolKey: string; fallback: IndexData; T: Theme }) {
+  const variants = INDEX_MATCH_VARIANTS[symbolKey] ?? [symbolKey];
+  const live = useIndicesSelector(s => findIndex(s.indices, variants));
+  const value = live?.value ?? fallback.value;
+  const change = live?.change ?? fallback.change;
+  const changePct = live?.change_pct ?? fallback.change_pct;
+  const isUp = change >= 0;
+  const changeColor = isUp ? "#22c55e" : "#ef4444";
+  return (
+    <div style={{ textAlign: "right" }}>
+      <div style={{ fontSize: "18px", fontWeight: 700, color: T.text }}>
+        ₹{value.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+      </div>
+      <div style={{ fontSize: "12px", fontWeight: 600, color: changeColor }}>
+        {isUp ? "+" : ""}{change.toFixed(2)} ({isUp ? "+" : ""}{changePct.toFixed(2)}%)
+      </div>
+    </div>
+  );
+}
+
 export default function OptionChain() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -63,33 +207,50 @@ export default function OptionChain() {
   const lotSize = LOT_SIZE_MAP[symbolKey] ?? DEFAULT_LOT_SIZE;
   const strikeStep = STRIKE_STEP_MAP[symbolKey] ?? DEFAULT_STRIKE_STEP;
 
-  // Live spot price + change%, kept fresh by the indices stream — used only
-  // for the header ticker (the chain's own repricing uses chainData.spot,
-  // the exact spot the backend used when it computed that snapshot).
-  const [livePrice, setLivePrice] = useState({
-    value: indexData.value,
-    change: indexData.change,
-    change_pct: indexData.change_pct,
-  });
   // The real live option chain (real LTP/OI/IV per strike, ~20 strikes each
-  // side of spot, pushed by the backend's Shoonya-backed stream). No
+  // side of spot), from the shared delta-protocol feed in
+  // src/lib/optionChainStream.ts. This component only subscribes to the
+  // row layout and status; prices are subscribed per cell (LegCells). No
   // synthetic fallback — if this underlying isn't supported or the stream
-  // has nothing yet, chainStatus reflects that honestly instead of showing
-  // fake numbers.
-  const [chainData, setChainData] = useState<OptionChainResponse | null>(null);
-  const [chainStatus, setChainStatus] = useState<"connecting" | "live" | "reconnecting" | "unavailable">("connecting");
-  const [chainErrorMessage, setChainErrorMessage] = useState<string | null>(null);
-  // From the same indices stream, so we can tell "market's closed, there's
+  // has nothing yet, chainStatus reflects that honestly.
+  const slug = SUPPORTED_UNDERLYING_SLUGS[symbolKey];
+  const feed = useMemo(() => (slug ? getChainFeed(slug) : null), [slug]);
+  useChainFeed(feed);
+  const strikes = useChainMeta(feed, m => m.rows);
+  const chainStatus = useChainMeta(feed, m => (slug ? m.status : "unavailable"));
+  const errorReason = useChainMeta(feed, m => m.errorReason);
+  const chainExpiry = useChainMeta(feed, m => m.exp);
+  // ATM from the chain's own spot (the exact spot the backend priced with);
+  // a primitive, so spot ticks that don't move ATM don't re-render.
+  const chainAtm = useChainMeta(feed, m => (m.spot != null ? Math.round(m.spot / strikeStep) * strikeStep : null));
+  const atmStrike = chainAtm ?? Math.round(indexData.value / strikeStep) * strikeStep;
+
+  const chainErrorMessage = !slug
+    ? `Live option chain isn't available for ${indexData.symbol} yet.`
+    : errorReason === "no_option_data" || errorReason === "no_expiry_available"
+    ? "No option chain data is available for this expiry right now."
+    : errorReason === "initialization_failed" || errorReason === "option_chain_failed"
+    ? "The live option chain couldn't be started. Please try again shortly."
+    : null;
+
+  // From the shared indices stream, so we can tell "market's closed, there's
   // genuinely no live session right now" apart from "connection dropped,
   // retrying" — those are very different situations and shouldn't share a
   // perpetual "Reconnecting…" message.
-  const [marketStatus, setMarketStatus] = useState<string | null>(null);
+  const marketStatus = useIndicesSelector(s => s.marketStatus);
   const marketClosed = marketStatus === "closed";
 
-  const strikes = chainData?.strikes ?? [];
-  const spot = chainData?.spot ?? livePrice.value;
-  const expiryDisplay = chainData?.expiry ? isoExpiryToDisplay(chainData.expiry) : CURRENT_EXPIRY;
-  const atmStrike = useMemo(() => Math.round(spot / strikeStep) * strikeStep, [spot, strikeStep]);
+  const expiryDisplay = chainExpiry ? isoExpiryToDisplay(chainExpiry) : CURRENT_EXPIRY;
+
+  // Perf (localStorage.perf = "1"): first rows on screen.
+  const firstPaintDone = useRef(false);
+  useLayoutEffect(() => {
+    if (firstPaintDone.current || strikes.length === 0) return;
+    firstPaintDone.current = true;
+    mark("chain:first-paint");
+    measure("chain first-msg→first-paint", "chain:first-msg");
+    measure("chain click→first-paint", "chain:click");
+  }, [strikes.length]);
 
   const [orderTicket, setOrderTicket] = useState<OrderTicket | null>(null);
   const [orderQtyLots, setOrderQtyLots] = useState(1);
@@ -108,7 +269,11 @@ export default function OptionChain() {
     tradeId?: number;
   } | null>(null);
 
-  function openOrderTicket(strike: number, optionType: "CE" | "PE", side: OrderSide, premium: number) {
+  // Stable (only calls state setters) so memoized rows never re-render for it.
+  const openOrderTicket = useCallback<OnOrder>((strike, optionType, side, leg) => {
+    // Prefill with the leg's own price only (LTP, else the side you'd cross);
+    // no quote at all leaves it blank rather than inventing one.
+    const premium = leg?.ltp ?? (side === "BUY" ? leg?.ask : leg?.bid) ?? 0;
     setOrderTicket({ strike, optionType, side });
     setOrderQtyLots(1);
     setOrderType("LIMIT");
@@ -116,7 +281,11 @@ export default function OptionChain() {
     setOrderPrice(Math.round(premium * 100) / 100);
     setOrderError(null);
     setOrderResult(null);
-  }
+  }, []);
+
+  // Live quote for the leg in the open order ticket (null token = no ticket).
+  const ticketRow = orderTicket ? strikes.find(r => r.strike === orderTicket.strike) : undefined;
+  const ticketLeg = useLeg(feed, ticketRow ? (orderTicket!.optionType === "CE" ? ticketRow.ceToken : ticketRow.peToken) : null);
 
   function closeOrderTicket() {
     setOrderTicket(null);
@@ -222,9 +391,6 @@ export default function OptionChain() {
     }
   }
 
-  const isUp = livePrice.change >= 0;
-  const changeColor = isUp ? "#22c55e" : "#ef4444";
-
   useEffect(() => {
     if (!localStorage.getItem("authToken")) navigate("/", { replace: true });
   }, []);
@@ -246,92 +412,6 @@ export default function OptionChain() {
     document.body.style.backgroundColor = isDark ? "#0d1117" : "#f0f4f8";
     return () => { document.body.style.backgroundColor = ""; };
   }, [isDark]);
-
-  // Header ticker's spot/change% — separate from the option chain's own
-  // spot (chainData.spot), since this endpoint carries day-level change%
-  // that the option-chain stream doesn't.
-  useEffect(() => {
-    const matchVariants = INDEX_MATCH_VARIANTS[symbolKey] ?? [symbolKey];
-    const es = new EventSource(`${BASE_URL}/api/market/indices/stream`);
-
-    es.onmessage = (event) => {
-      try {
-        const data: MarketData = JSON.parse(event.data);
-        setMarketStatus(data.market_status);
-        const matchedIndex = data.indices.find(i => {
-          const normalized = normalizeName(i.name || "");
-          return matchVariants.some(v => normalized === v || normalized.includes(v));
-        });
-        if (!matchedIndex) return;
-        setLivePrice({ value: matchedIndex.value, change: matchedIndex.change, change_pct: matchedIndex.change_pct });
-      } catch (e) {
-        console.error("[OptionChain] Stream parse error:", e);
-      }
-    };
-
-    // Per EventSource semantics, the browser auto-reconnects on its own after
-    // a drop — closing here would permanently kill that.
-    es.onerror = () => {
-      console.error("[OptionChain] Indices stream connection error — awaiting auto-reconnect");
-    };
-
-    return () => es.close();
-  }, [symbolKey]);
-
-  // The real live option chain. Backend contract:
-  //  - sends the current snapshot immediately on connect
-  //  - a new frame arrives only when data actually changes (event-driven,
-  //    not a fixed poll interval)
-  //  - on a Shoonya disconnect, exactly one frame with
-  //    errors:[{reason:"shoonya_disconnected"}] arrives (last-known strikes
-  //    still included, not wiped) then it goes quiet until reconnected
-  //  - the browser's native EventSource reconnect handles connection drops;
-  //    we must not call es.close() on error or that stops working
-  useEffect(() => {
-    const slug = SUPPORTED_UNDERLYING_SLUGS[symbolKey];
-    if (!slug) {
-      setChainStatus("unavailable");
-      setChainErrorMessage(`Live option chain isn't available for ${indexData.symbol} yet.`);
-      return;
-    }
-
-    setChainStatus("connecting");
-    setChainErrorMessage(null);
-    const es = new EventSource(`${BASE_URL}/api/market/${slug}/optionchain/stream`);
-
-    es.onmessage = (event) => {
-      try {
-        const data: OptionChainResponse = JSON.parse(event.data);
-        const errs = data.errors ?? [];
-        const disconnected = errs.some(e => e.reason === "shoonya_disconnected");
-        const noData = errs.some(e => e.reason === "no_option_data" || e.reason === "no_expiry_available");
-
-        if (disconnected) {
-          setChainStatus("reconnecting");
-          if (Array.isArray(data.strikes) && data.strikes.length > 0) setChainData(data);
-          return;
-        }
-        if (noData) {
-          setChainStatus("unavailable");
-          setChainErrorMessage("No option chain data is available for this expiry right now.");
-          return;
-        }
-
-        setChainData(data);
-        setChainStatus("live");
-        setChainErrorMessage(null);
-      } catch (e) {
-        console.error("[OptionChain] chain stream parse error:", e);
-      }
-    };
-
-    es.onerror = () => {
-      console.error("[OptionChain] chain stream connection error — awaiting auto-reconnect");
-      setChainStatus("reconnecting");
-    };
-
-    return () => es.close();
-  }, [symbolKey, indexData.symbol]);
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: T.bg }}>
@@ -383,14 +463,7 @@ export default function OptionChain() {
             </div>
           </div>
 
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: "18px", fontWeight: 700, color: T.text }}>
-              ₹{livePrice.value.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-            </div>
-            <div style={{ fontSize: "12px", fontWeight: 600, color: changeColor }}>
-              {isUp ? "+" : ""}{livePrice.change.toFixed(2)} ({isUp ? "+" : ""}{livePrice.change_pct.toFixed(2)}%)
-            </div>
-          </div>
+          <LiveSpot symbolKey={symbolKey} fallback={indexData} T={T} />
         </div>
 
         {/* ── Option Chain Table ── */}
@@ -425,99 +498,19 @@ export default function OptionChain() {
                 </tr>
               </thead>
               <tbody>
-                {strikes.map(({ strike, ce, pe }) => {
-                  const isAtm = strike === atmStrike;
-                  return (
-                    <tr key={strike} style={{ background: isAtm ? "rgba(59,130,246,0.06)" : "transparent" }}>
-                      <td style={{ padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {ce?.oi != null ? ce.oi.toLocaleString("en-IN") : "-"}
-                      </td>
-                      <td style={{ padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {ce?.iv != null ? (ce.iv * 100).toFixed(1) : "-"}
-                      </td>
-                      <td style={{ padding: "8px", color: "#22c55e", fontWeight: 700, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {ce?.ltp != null ? `₹${ce.ltp.toFixed(2)}` : "-"}
-                      </td>
-                      <td style={{ padding: "6px 4px", borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {ce ? (
-                          <div style={{ display: "flex", gap: "4px", justifyContent: "center" }}>
-                            <button
-                              onClick={() => openOrderTicket(strike, "CE", "BUY", ce.ltp)}
-                              title={`Buy ${underlyingDisplay} ${strike} CE`}
-                              style={{
-                                padding: "4px 8px", fontSize: "10px", fontWeight: 700, borderRadius: "5px",
-                                background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.4)",
-                                color: "#22c55e", cursor: "pointer",
-                              }}
-                            >
-                              Buy
-                            </button>
-                            <button
-                              onClick={() => openOrderTicket(strike, "CE", "SELL", ce.ltp)}
-                              title={`Sell ${underlyingDisplay} ${strike} CE`}
-                              style={{
-                                padding: "4px 8px", fontSize: "10px", fontWeight: 700, borderRadius: "5px",
-                                background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)",
-                                color: "#ef4444", cursor: "pointer",
-                              }}
-                            >
-                              Sell
-                            </button>
-                          </div>
-                        ) : (
-                          <span style={{ color: T.textDim, fontSize: "10px" }}>No quote</span>
-                        )}
-                      </td>
-                      <td style={{
-                        padding: "8px 12px", color: isAtm ? "#3b82f6" : T.text, fontWeight: 700,
-                        borderBottom: `1px solid ${T.border}`, textAlign: "center", background: T.card,
-                        borderLeft: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}`,
-                      }}>
-                        {strike.toLocaleString("en-IN")}
-                        {isAtm && <div style={{ fontSize: "8px", color: "#3b82f6", fontWeight: 700 }}>ATM</div>}
-                      </td>
-                      <td style={{ padding: "6px 4px", borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {pe ? (
-                          <div style={{ display: "flex", gap: "4px", justifyContent: "center" }}>
-                            <button
-                              onClick={() => openOrderTicket(strike, "PE", "BUY", pe.ltp)}
-                              title={`Buy ${underlyingDisplay} ${strike} PE`}
-                              style={{
-                                padding: "4px 8px", fontSize: "10px", fontWeight: 700, borderRadius: "5px",
-                                background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.4)",
-                                color: "#22c55e", cursor: "pointer",
-                              }}
-                            >
-                              Buy
-                            </button>
-                            <button
-                              onClick={() => openOrderTicket(strike, "PE", "SELL", pe.ltp)}
-                              title={`Sell ${underlyingDisplay} ${strike} PE`}
-                              style={{
-                                padding: "4px 8px", fontSize: "10px", fontWeight: 700, borderRadius: "5px",
-                                background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)",
-                                color: "#ef4444", cursor: "pointer",
-                              }}
-                            >
-                              Sell
-                            </button>
-                          </div>
-                        ) : (
-                          <span style={{ color: T.textDim, fontSize: "10px" }}>No quote</span>
-                        )}
-                      </td>
-                      <td style={{ padding: "8px", color: "#ef4444", fontWeight: 700, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {pe?.ltp != null ? `₹${pe.ltp.toFixed(2)}` : "-"}
-                      </td>
-                      <td style={{ padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {pe?.iv != null ? (pe.iv * 100).toFixed(1) : "-"}
-                      </td>
-                      <td style={{ padding: "8px", color: T.textDim, borderBottom: `1px solid ${T.border}`, textAlign: "center" }}>
-                        {pe?.oi != null ? pe.oi.toLocaleString("en-IN") : "-"}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {strikes.map(r => (
+                  <StrikeRow
+                    key={r.strike}
+                    feed={feed}
+                    strike={r.strike}
+                    ceToken={r.ceToken}
+                    peToken={r.peToken}
+                    isAtm={r.strike === atmStrike}
+                    underlyingDisplay={underlyingDisplay}
+                    onOrder={openOrderTicket}
+                    T={T}
+                  />
+                ))}
               </tbody>
             </table>
             {strikes.length === 0 && (
@@ -545,9 +538,7 @@ export default function OptionChain() {
 
         {/* ── Order Ticket Modal ── */}
         {orderTicket && (() => {
-          const quote = strikes.find(o => o.strike === orderTicket.strike);
-          const leg = quote ? (orderTicket.optionType === "CE" ? quote.ce : quote.pe) : null;
-          const premium = leg ? leg.ltp : orderPrice;
+          const premium = ticketLeg?.ltp ?? orderPrice;
           const effectivePrice = orderType === "MARKET" ? premium : orderPrice;
           const totalValue = effectivePrice * orderQtyLots * lotSize;
           const isBuy = orderTicket.side === "BUY";
